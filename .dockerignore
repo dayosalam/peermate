@@ -1,0 +1,23 @@
+# auth_state is a live WhatsApp session credential. Excluded from the build context
+# so it can never reach an image layer or a build cache, even by accident — the
+# Dockerfile mounts it as a volume instead.
+auth_state
+
+.env
+.env.*
+!.env.example
+
+node_modules
+dist
+
+# The render toolchain — ffmpeg, a canvas backend, a PDF rasteriser — has no business
+# in the image the WhatsApp socket runs in. render/ is a separate package that src/
+# never imports; keeping it out of the build context is what makes that true rather
+# than merely intended.
+render
+
+.git
+.gitignore
+*.log
+coverage
+tests

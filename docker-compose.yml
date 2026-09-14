@@ -1,0 +1,68 @@
+# Peermate, whole. `docker compose up` runs the app alongside its stores; to develop
+# against the host instead, `docker compose up mongo minio chroma` and `npm run dev`,
+# which puts the Baileys QR in your own terminal.
+
+services:
+  app:
+    build: .
+    env_file: .env
+    environment:
+      # Inside the network the stores answer to their service names, not localhost.
+      MONGODB_URL: mongodb://mongo:27017
+      CHROMA_URL: http://chroma:8000
+      MINIO_ENDPOINT: minio:9000
+      WHATSAPP_AUTH_DIR: /app/auth_state
+    volumes:
+      # The session outlives the container. Losing it means re-pairing from the
+      # bot's phone by hand — there is no token that substitutes for a linked device.
+      - auth_state:/app/auth_state
+    ports:
+      - "3000:3000"
+    depends_on:
+      - mongo
+      - minio
+      - chroma
+    restart: unless-stopped
+    deploy:
+      # One process, always. Two against one session desynchronise the Signal ratchet
+      # and every student sees "Waiting for this message" with no way back.
+      replicas: 1
+      update_config:
+        order: stop-first
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9090"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-peermate-local}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-peermate-local-dev}
+    ports:
+      - "9000:9000"
+      - "9090:9090"
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+
+  # The JS Chroma client is HTTP-only — unlike Python there is no embedded mode,
+  # so this server is required, not optional.
+  chroma:
+    image: chromadb/chroma:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/data
+    restart: unless-stopped
+
+volumes:
+  auth_state:
+  mongo_data:
+  minio_data:
+  chroma_data:
