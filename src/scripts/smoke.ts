@@ -112,6 +112,7 @@ async function main(): Promise<void> {
     trustedSenders: [],
     proposedCourse: null,
     proposedBy: null,
+    approvedBy: null,
     joinedAt: new Date(),
     approvedAt: new Date(),
   })

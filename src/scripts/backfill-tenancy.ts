@@ -12,11 +12,13 @@
  * out is reported and left alone, so an operator resolves it rather than the script
  * silently picking a side.
  */
+import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { closeMongo, connectMongo, getDb } from '../db/mongo.js'
 import { logger } from '../core/logger.js'
 import type { Group, Message, Resource, User } from '../models/index.js'
 
-interface Report {
+export interface Report {
   usersScoped: number
   usersStranded: string[]
   ambiguous: string[]
@@ -54,7 +56,7 @@ function groupsFor(user: User, groups: Group[], ambiguous: Set<string>): string[
   return [...mine]
 }
 
-async function run(): Promise<Report> {
+export async function backfillTenancy(): Promise<Report> {
   const db = getDb()
   const report: Report = {
     usersScoped: 0,
@@ -118,7 +120,7 @@ async function run(): Promise<Report> {
 
 async function main(): Promise<void> {
   await connectMongo()
-  const report = await run()
+  const report = await backfillTenancy()
   await closeMongo()
 
   console.log(`\nusers given a group:       ${report.usersScoped}`)
@@ -147,7 +149,13 @@ async function main(): Promise<void> {
   console.log('')
 }
 
-main().catch((error) => {
-  logger.error({ err: error }, 'backfill failed')
-  process.exit(1)
-})
+/**
+ * Only when run as a command. The boot path imports `backfillTenancy` directly and
+ * owns its own Mongo connection and logging, so a bare import must not start anything.
+ */
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    logger.error({ err: error }, 'backfill failed')
+    process.exit(1)
+  })
+}

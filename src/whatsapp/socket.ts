@@ -1,7 +1,6 @@
 import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion,
-  jidNormalizedUser,
   useMultiFileAuthState,
   type WAMessage,
   type WASocket,
@@ -211,27 +210,8 @@ export async function connectWhatsApp(): Promise<WASocket> {
   // Who performed the add. The operator is deciding whose request to trust, so the
   // name matters more than the group's own metadata.
   current.ev.on('group-participants.update', (update) => {
-    const selfJids = new Set(
-      [current.user?.id, current.user?.phoneNumber, current.user?.lid]
-        .map(jidNormalizedUser)
-        .filter(Boolean),
-    )
-    const involvesBot = update.participants.some((participant) =>
-      [participant.id, participant.phoneNumber, participant.lid]
-        .map(jidNormalizedUser)
-        .some((jid) => selfJids.has(jid)),
-    )
-    // Preserve every address Baileys supplies. Existing accounts may be keyed by
-    // their phone JID or LID, and removeMembers deliberately matches both.
-    const participantJids = [
-      ...new Set(
-        update.participants.flatMap((participant) =>
-          [participant.id, participant.phoneNumber, participant.lid].filter(
-            (jid): jid is string => Boolean(jid),
-          ),
-        ),
-      ),
-    ]
+    const me = current.user?.id?.split(':')[0]
+    const involvesBot = update.participants.some((participant) => participant.split(':')[0] === me)
 
     if (update.action === 'add') {
       if (!involvesBot) return
@@ -246,7 +226,7 @@ export async function connectWhatsApp(): Promise<WASocket> {
     // stop hearing what is said in it.
     if (update.action === 'remove') {
       for (const handler of leaveHandlers) {
-        handler(update.id, { participants: participantJids, botRemoved: involvesBot })
+        handler(update.id, { participants: update.participants, botRemoved: involvesBot })
       }
     }
   })

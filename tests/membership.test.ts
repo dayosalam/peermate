@@ -7,7 +7,10 @@ let participants: Record<string, string[]> = {}
 let metadataFails = false
 
 vi.mock('../src/repositories/index.js', () => ({
-  groupRepository: { approved: vi.fn(async () => groups) },
+  groupRepository: {
+    approved: vi.fn(async () => groups.filter((g) => g.status === 'approved')),
+    pending: vi.fn(async () => groups.filter((g) => g.status === 'pending')),
+  },
   userRepository: {
     addGroup: vi.fn(async (phone: string, chatJid: string) => {
       added.push({ phone, chatJid })
@@ -142,5 +145,62 @@ describe('a course code is a claim, not an entitlement', () => {
     participants['333@g.us'] = ['2348012345678@s.whatsapp.net']
 
     expect((await membershipService.subscribe(amina)).joined).toEqual(['333@g.us'])
+  })
+})
+
+/**
+ * Authority over a group is being in it. There is no operator above everyone, so a
+ * group added by somebody who never writes to Peermate has to be claimable by anyone
+ * else in the room — otherwise one absent person strands a whole class.
+ */
+describe('claiming a group nobody has switched on', () => {
+  it('offers a pending group to somebody proved to be in it', async () => {
+    groups = [group({ chatJid: 'g9@g.us', status: 'pending', defaultCourseKey: null })]
+    participants = { 'g9@g.us': ['2348012345678@s.whatsapp.net'] }
+
+    const mine = await membershipService.claimable(amina)
+    expect(mine.map((g) => g.chatJid)).toEqual(['g9@g.us'])
+  })
+
+  it('offers nothing to somebody who is not in it', async () => {
+    groups = [group({ chatJid: 'g9@g.us', status: 'pending', defaultCourseKey: null })]
+    participants = { 'g9@g.us': ['2349999999999@s.whatsapp.net'] }
+
+    expect(await membershipService.claimable(amina)).toEqual([])
+  })
+
+  it('never offers a group that is already being read', async () => {
+    groups = [group({ chatJid: 'g9@g.us', status: 'approved', defaultCourseKey: null })]
+    participants = { 'g9@g.us': ['2348012345678@s.whatsapp.net'] }
+
+    expect(await membershipService.claimable(amina)).toEqual([])
+  })
+
+  /** A dropped socket must not be what hands somebody a cohort. */
+  it('offers nothing when membership cannot be checked', async () => {
+    groups = [group({ chatJid: 'g9@g.us', status: 'pending', defaultCourseKey: null })]
+    metadataFails = true
+
+    expect(await membershipService.claimable(amina)).toEqual([])
+  })
+})
+
+describe('who may change a group', () => {
+  it('allows somebody proved to be in it', async () => {
+    const it0 = group({ chatJid: 'g9@g.us', status: 'approved' })
+    participants = { 'g9@g.us': ['2348012345678@s.whatsapp.net'] }
+    expect(await membershipService.mayAdminister(amina, it0)).toBe(true)
+  })
+
+  it('refuses somebody who is not', async () => {
+    const it0 = group({ chatJid: 'g9@g.us', status: 'approved' })
+    participants = { 'g9@g.us': ['2349999999999@s.whatsapp.net'] }
+    expect(await membershipService.mayAdminister(amina, it0)).toBe(false)
+  })
+
+  it('refuses when the check cannot complete', async () => {
+    const it0 = group({ chatJid: 'g9@g.us', status: 'approved' })
+    metadataFails = true
+    expect(await membershipService.mayAdminister(amina, it0)).toBe(false)
   })
 })

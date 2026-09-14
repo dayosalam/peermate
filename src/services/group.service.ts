@@ -1,11 +1,11 @@
 import { config } from '../config.js'
 import { logger } from '../core/logger.js'
-import type { Authority, Group } from '../models/index.js'
+import type { Authority, Group, User } from '../models/index.js'
 import { groupRepository, pendingRepository, userRepository } from '../repositories/index.js'
 import { courseDisplay, courseKey, parseCourseList } from '../utils/courses.js'
-import { jidToPhone } from '../whatsapp/jid.js'
+import { jidToIdentity, jidToPhone, samePhone } from '../whatsapp/jid.js'
+import { conversationService } from './conversation.service.js'
 import { notifierService } from './notifier.service.js'
-import { operatorJid } from './operator.js'
 
 export interface GroupContext {
   subject: string | null
@@ -66,13 +66,24 @@ export class GroupService {
       trustedSenders: [],
       proposedCourse: null,
       proposedBy: null,
+      approvedBy: null,
       joinedAt: new Date(),
       approvedAt: null,
     }
     await groupRepository.upsert(group)
     logger.info({ chatJid, subject: context.subject, guess }, 'group pending approval')
 
-    await this.askOperator(group)
+    // Whoever added Peermate decides, and nobody else is told. Peermate has a
+    // relationship with each student, not a moderator sitting above all of them: one
+    // student's group is their own business, and a notice about a stranger's cohort is
+    // something the reader can neither judge nor act on.
+    //
+    // They can only be asked if they have written to Peermate before, since it never
+    // opens a conversation with someone who has not. Otherwise the group simply waits:
+    // `membershipService.claimable` offers it to anyone in it who does.
+    if (!(await this.askAdder(group))) {
+      logger.info({ chatJid, addedBy: group.addedBy }, 'nobody to ask yet — group waits')
+    }
     return group
   }
 
@@ -164,33 +175,45 @@ export class GroupService {
   }
 
   /**
-   * A student telling Peermate what a group is for.
+   * Files the course a student says a group is for.
    *
-   * They cannot approve it — anybody can add the bot anywhere, so approval stays
-   * with the operator. But they are the one who knows, and throwing that away means
-   * the operator is guessing about a group they have never seen.
+   * The adder's word settles it; anybody else's is a proposal for the operator. The
+   * check is on the stored `addedBy` rather than on anything the caller passed, so a
+   * student who names someone else's group cannot switch it on by saying they added
+   * it — the same reason every tool resolves its student from the session.
    */
-  async propose(chatJid: string, course: string, by: string): Promise<Group | null> {
+  async propose(
+    chatJid: string,
+    course: string,
+    by: string,
+    byIdentity?: string | null,
+  ): Promise<{ group: Group; approved: boolean } | null> {
     const group = await groupRepository.findByJid(chatJid)
     if (!group) return null
 
+    if (group.addedBy && byIdentity && samePhone(byIdentity, group.addedBy)) {
+      // Recorded because nobody is messaged about it, so this is the only account of
+      // what happened — and because the address is who Peermate asks when it hears
+      // something in here it cannot file.
+      await groupRepository.upsert({
+        ...group,
+        proposedCourse: course,
+        proposedBy: by,
+        approvedBy: byIdentity,
+      })
+      const approved = await this.approve(chatJid, course)
+      if (approved) {
+        logger.info({ chatJid, course, by }, 'group approved by the person who added it')
+        return { group: approved, approved: true }
+      }
+    }
+
+    // Recorded, not relayed. Whoever added the group is the one who can switch it on,
+    // and paging a third party about somebody else's cohort is a notice they can
+    // neither judge nor act on. The operator can still see it with *pending*.
     await groupRepository.upsert({ ...group, proposedCourse: course, proposedBy: by })
     logger.info({ chatJid, course, by }, 'course proposed for group')
-
-    const operator = await operatorJid()
-    if (operator) {
-      await notifierService
-        .sendText(
-          operator,
-          `💡 *${by}* says *${group.name ?? chatJid}* is the group for *${course}*.
-
-It's still waiting on you. Reply *here* with *approve ${course}* to start reading it, or *ignore group*.
-
-⚠️ Replying inside the group won't work — I don't read a group until it's approved.`,
-        )
-        .catch((error) => logger.error({ err: error }, 'could not relay proposal'))
-    }
-    return group
+    return { group, approved: false }
   }
 
   async setCourse(chatJid: string, course: string | null): Promise<Group | null> {
@@ -213,45 +236,54 @@ It's still waiting on you. Reply *here* with *approve ${course}* to start readin
    * Peermate never messages a student who has not written first. The operator is the
    * one exception: they configured the bot, and this is the only way to ask.
    */
-  private async askOperator(group: Group): Promise<void> {
-    const operator = await operatorJid()
-    if (!operator) {
-      logger.warn(
-        { chatJid: group.chatJid },
-        'no ADMIN_PHONE set — this group can never be approved and will stay silent',
+
+  /**
+   * Asks whoever added Peermate what the group is for.
+   *
+   * Returns false when there is nobody to ask: no adder was recorded, or the adder has
+   * never written to Peermate. It does not open a conversation with a stranger — the
+   * operator is the only person it may message unprompted — so that case falls back.
+   *
+   * When the name suggests a course the question is a yes/no with the guess in it, and
+   * the answer is held as a pending proposal. When it does not, the question is open
+   * and the agent reads the reply like any other message.
+   */
+  private async askAdder(group: Group): Promise<boolean> {
+    if (!group.addedBy) return false
+
+    const identity = jidToIdentity(group.addedBy)
+    const adder = identity ? await userRepository.findByPhone(identity) : null
+    if (!adder || adder.onboardingState !== 'registered' || !adder.jid) return false
+
+    const where = group.name ?? 'that group'
+
+    if (group.defaultCourse) {
+      await conversationService.proposeGroup(adder.phone, {
+        chatJid: group.chatJid,
+        groupName: group.name,
+        course: group.defaultCourse,
+      })
+      await notifierService.sendText(
+        adder.jid,
+        `📎 You added me to *${where}*.
+
+Looks like *${group.defaultCourse}* from the name. Send *yes* and I'll start listening, or send the right code.
+
+I'm reading *nothing* in there until you say.`,
       )
-      return
+    } else {
+      await notifierService.sendText(
+        adder.jid,
+        `📎 You added me to *${where}*.
+
+Which course is it for? Send the code, like *CVE 575*.
+
+I'm reading *nothing* in there until you tell me.`,
+      )
     }
 
-    const who = group.addedByName ?? (group.addedBy ? jidToPhone(group.addedBy) : null)
-    const facts = [
-      `*Group:* ${group.name ?? 'unnamed'}`,
-      who ? `*Added by:* ${who}` : null,
-      group.participantCount ? `*Members:* ${group.participantCount}` : null,
-      group.defaultCourse
-        ? `*Looks like:* ${group.defaultCourse} (from the name)`
-        : `*Course:* I can't tell from the name`,
-    ]
-      .filter(Boolean)
-      .join('\n')
-
-    const suggestion = group.defaultCourse
-      ? `*approve ${group.defaultCourse}*`
-      : '*approve CSC 301*'
-
-    await notifierService.sendText(
-      operator,
-      `📎 I've been added to a group.
-
-${facts}
-
-I'm *not reading anything* from it yet. Reply *here, in this chat*:
-• ${suggestion} — start listening, file it under that course
-• *approve* — start listening, but I'll work out the course per message
-• *ignore group* — stay silent in it
-
-⚠️ Sending that inside the group won't work — I don't read a group until it's approved, and I never post in one.`,
-    )
+    logger.info({ chatJid: group.chatJid, phone: adder.phone }, 'asked the adder about a group')
+    return true
   }
 }
 

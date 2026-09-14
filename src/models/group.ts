@@ -63,6 +63,14 @@ export const GroupSchema = z.object({
    */
   proposedCourse: z.string().nullable().default(null),
   proposedBy: z.string().nullable().default(null),
+  /**
+   * The student who switched this group on, as an address rather than a name.
+   *
+   * `proposedBy` is what to call them; this is how to reach them. Peermate asks them
+   * when it hears something in here it cannot file, and nobody else is asked — nobody
+   * else was in the room. Null for a group approved before this existed.
+   */
+  approvedBy: z.string().nullable().default(null),
   joinedAt: z.date(),
   approvedAt: z.date().nullable().default(null),
 })

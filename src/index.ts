@@ -11,6 +11,7 @@ import { resourceAlertService } from './services/resource-alert.service.js'
 import { groupService } from './services/group.service.js'
 import { connectWhatsApp, onGroupJoin, onGroupLeave, onMessage } from './whatsapp/socket.js'
 import { ingestQueue, recoverUnfinished } from './workers/ingest.worker.js'
+import { backfillTenancy } from './scripts/backfill-tenancy.js'
 
 /** Shorter than the orchestrator's own SIGKILL timer, so the flushes below still run. */
 const SHUTDOWN_GRACE_MS = 10_000
@@ -19,6 +20,33 @@ async function main(): Promise<void> {
   await connectMongo()
   await connectMinio()
   await connectChroma()
+
+  // Before anything can be answered, not as a step somebody has to remember.
+  //
+  // Every read is scoped by `groupJids`, and an empty one returns nothing rather than
+  // everything — so an account that predates tenancy hears silence, with clean logs,
+  // until this has run. Idempotent: it skips anyone already scoped, so on every boot
+  // after the first it reads two collections and writes nothing.
+  //
+  // Fails soft. A backfill that cannot complete is a subset of students hearing less
+  // than they should; a boot that dies on it is all of them hearing nothing.
+  try {
+    const scoped = await backfillTenancy()
+    if (scoped.usersScoped > 0 || scoped.resourcesScoped > 0) {
+      logger.info(
+        { users: scoped.usersScoped, resources: scoped.resourcesScoped },
+        'tenancy backfilled',
+      )
+    }
+    if (scoped.usersStranded.length > 0 || scoped.ambiguous.length > 0) {
+      logger.warn(
+        { stranded: scoped.usersStranded, ambiguous: scoped.ambiguous },
+        'students left unscoped — they hear nothing until their group is set by hand',
+      )
+    }
+  } catch (error) {
+    logger.error({ err: error }, 'tenancy backfill failed — pre-tenancy accounts stay silent')
+  }
 
   // The socket handler does nothing but enqueue, so a slow transcription can never
   // stall WhatsApp ingestion.

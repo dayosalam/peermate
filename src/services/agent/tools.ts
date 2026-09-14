@@ -1,13 +1,20 @@
 import { z } from 'zod'
-import type { User } from '../../models/index.js'
+import type { Group, User } from '../../models/index.js'
 import { AssignmentStatus } from '../../models/index.js'
 import { assignmentService } from '../assignment.service.js'
 import { courseService } from '../course.service.js'
 import { digestService } from '../digest.service.js'
 import { guidanceService } from '../guidance.service.js'
+import { groupService } from '../group.service.js'
+import { membershipService } from '../membership.service.js'
+import { announcementService } from '../announcement.service.js'
 import { explainerService } from '../explainer.service.js'
 import { dmService } from '../dm.service.js'
-import { extractionRepository } from '../../repositories/index.js'
+import {
+  extractionRepository,
+  groupRepository,
+  pendingRepository,
+} from '../../repositories/index.js'
 import { prepService } from '../prep.service.js'
 import { researchService } from '../research.service.js'
 import { resourceService } from '../resource.service.js'
@@ -20,8 +27,7 @@ import { messageRepository } from '../../repositories/index.js'
 import { conversationService } from '../conversation.service.js'
 import { notifierService } from '../notifier.service.js'
 import { ttsService, EXPLAINER_CHARS } from '../tts.service.js'
-import { isOperatorIdentity } from '../operator.js'
-import { courseDisplay, courseKey } from '../../utils/courses.js'
+import { courseDisplay, courseKey, parseCourseList } from '../../utils/courses.js'
 import { formatStamp } from '../../utils/dates.js'
 import { asEvidence, format } from './evidence.js'
 
@@ -64,6 +70,36 @@ async function resolveCourse(named: string | undefined, user: User): Promise<str
 
   const resolved = await courseService.resolve(named, user)
   return resolved?.courseKey ?? null
+}
+
+/**
+ * Resolves a group the student named, within the groups they are actually in.
+ *
+ * The counterpart of `resolveCourse`, and for the same reason: the model can be
+ * persuaded to pass any string, and this is what makes that harmless. Naming somebody
+ * else's group resolves to nothing rather than to their cohort.
+ */
+async function resolveGroup(named: string | undefined, user: User): Promise<Group | null> {
+  const mine = await groupRepository.forStudent(user.groupJids)
+  if (mine.length === 0) return null
+  if (mine.length === 1 && !named) return mine[0]!
+  if (!named) return null
+
+  const wanted = named.trim().toLowerCase()
+  const key = courseKey(named)
+
+  return (
+    mine.find((group) => group.name?.toLowerCase() === wanted) ??
+    mine.find((group) => key && group.defaultCourseKey === key) ??
+    mine.find((group) => group.name?.toLowerCase().includes(wanted)) ??
+    null
+  )
+}
+
+/** Authority over a room is being in it, checked afresh rather than taken on trust. */
+async function mayChange(user: User, group: Group | null): Promise<Group | null> {
+  if (!group) return null
+  return (await membershipService.mayAdminister(user, group)) ? group : null
 }
 
 const tools: Tool[] = [
@@ -236,11 +272,7 @@ const tools: Tool[] = [
       question: z.string().describe('Their question about Peermate, as they asked it.'),
     }),
     async run(args, { user }) {
-      return guidanceService.answer(
-        user,
-        String(args['question'] ?? ''),
-        isOperatorIdentity(user.phone),
-      )
+      return guidanceService.answer(user, String(args['question'] ?? ''))
     },
   },
 
@@ -278,6 +310,124 @@ const tools: Tool[] = [
         ? ` The material does not cover ${explainer.notCovered.join(', ')}, which was left out.`
         : ''
       return `Sent the explanation${audio ? ' and the voice note' : ' (the voice note failed, so it is text only)'}. Do not repeat it \u2014 just say it is there.${gaps}`
+    },
+  },
+
+  {
+    name: 'set_group_course',
+    description:
+      "Correct which course a group's messages are filed under. Use when the student says a group is for a different course than Peermate has it down as. Only works for a group they are in.",
+    tier: 'reversible',
+    parameters: z.object({
+      group: z.string().nullable().describe('The group by name, or null if they are in only one.'),
+      course: z.string().describe('The course code it should be filed under.'),
+    }),
+    async run(args, { user }) {
+      const group = await mayChange(user, await resolveGroup(args['group'] as string, user))
+      if (!group) return 'They are not in a group by that name, so there is nothing to change.'
+
+      // parseCourseList, not courseKey: the latter only normalises, so "hello" comes
+      // back as "HELLO" and a group gets filed under it.
+      const [key] = parseCourseList(String(args['course'] ?? ''))
+      if (!key) return 'That is not a course code. Ask them for one like CVE 575.'
+
+      const display = courseDisplay(key) ?? key
+      await groupService.setCourse(group.chatJid, display)
+      return `Filed ${group.name ?? 'that group'} under ${display} from now on. Say it can be changed again the same way.`
+    },
+  },
+
+  {
+    name: 'trust_sender',
+    description:
+      'Record who in a group is the lecturer or the class rep, so their word settles a disagreement. Use when the student says something like "Dr Bello is our lecturer". Only works for a group they are in.',
+    tier: 'reversible',
+    parameters: z.object({
+      group: z.string().nullable().describe('The group by name, or null if they are in only one.'),
+      name: z.string().describe('The person, spelled as they appear in the group.'),
+      role: z.enum(['lecturer', 'rep']),
+    }),
+    async run(args, { user }) {
+      const group = await mayChange(user, await resolveGroup(args['group'] as string, user))
+      if (!group) return 'They are not in a group by that name, so there is nothing to record.'
+
+      const named = String(args['name'] ?? '').trim()
+      if (!named) return 'No name was given. Ask who they mean.'
+
+      await groupService.trust(group.chatJid, named, args['role'] as 'lecturer' | 'rep')
+      return `Recorded ${named} as the ${args['role'] === 'rep' ? 'class rep' : 'lecturer'} in ${group.name ?? 'that group'}. Their word now outweighs a classmate's on the same thing.`
+    },
+  },
+
+  {
+    name: 'stop_reading_group',
+    description:
+      'Stop reading a group entirely. Use when the student says a group should not be read — it is not a course group, or it should never have been connected. Irreversible from their side: reconnecting means removing Peermate and adding it again.',
+    tier: 'destructive',
+    parameters: z.object({
+      group: z.string().nullable().describe('The group by name, or null if they are in only one.'),
+    }),
+    async run(args, { user }) {
+      const group = await mayChange(user, await resolveGroup(args['group'] as string, user))
+      if (!group) return 'They are not in a group by that name, so there is nothing to stop.'
+
+      await groupService.ignore(group.chatJid)
+      return `Stopped. Nothing more from ${group.name ?? 'that group'} is read or passed on to anyone. Nothing already stored was deleted.`
+    },
+  },
+
+  {
+    name: 'file_announcement',
+    description:
+      'Answer which course an announcement belongs to, when Peermate heard something in a group and could not tell. Use only when replying to a question Peermate asked about an unfiled announcement.',
+    tier: 'reversible',
+    parameters: z.object({
+      course: z
+        .string()
+        .nullable()
+        .describe('The course code, or null when they say to leave it alone.'),
+      whole_group: z
+        .boolean()
+        .describe('True when they say everything from that group belongs to this course.'),
+    }),
+    async run(args, { user }) {
+      // Only a question about a group they are in. An open decision is a queue shared
+      // by every group on the shard, so without this a student would answer — and
+      // deliver — an announcement from a cohort they have never been near.
+      const open = await pendingRepository.unresolved(20)
+      let decision = null
+      for (const candidate of open) {
+        const group = await groupRepository.findByJid(candidate.chatJid)
+        if (group && (await membershipService.mayAdminister(user, group))) {
+          decision = candidate
+          break
+        }
+      }
+      if (!decision) return 'Nothing is waiting on them about an announcement. Do not invent one.'
+
+      if (args['course'] === null) {
+        await pendingRepository.resolve(decision.eventId, null)
+        return 'Left that one alone. It reaches nobody.'
+      }
+
+      const [key] = parseCourseList(String(args['course'] ?? ''))
+      if (!key) return 'That is not a course code. Ask them for one like CVE 575.'
+      const display = courseDisplay(key) ?? key
+
+      await pendingRepository.resolve(decision.eventId, display)
+      const told = await announcementService.deliverResolved(decision.eventId, display)
+
+      if (!args['whole_group']) {
+        return `Filed under ${display} and sent to ${told} student${told === 1 ? '' : 's'}. Offer to file everything from ${decision.groupName ?? 'that group'} there too.`
+      }
+
+      await groupService.setCourse(decision.chatJid, display)
+      const rest = await pendingRepository.openForGroup(decision.chatJid)
+      for (const other of rest) {
+        await pendingRepository.resolve(other.eventId, display)
+        await announcementService.deliverResolved(other.eventId, display)
+      }
+      return `Filed under ${display}, sent to ${told} student${told === 1 ? '' : 's'}, and everything from ${decision.groupName ?? 'that group'} goes there now${rest.length > 0 ? ` — including ${rest.length} that was already waiting` : ''}.`
     },
   },
 

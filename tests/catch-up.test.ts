@@ -48,6 +48,7 @@ function group(courseKey: string, name = 'Peermate'): Group {
     participantCount: null,
     proposedCourse: null,
     proposedBy: null,
+    approvedBy: null,
     trustedSenders: [],
     joinedAt: new Date(),
     approvedAt: new Date(),

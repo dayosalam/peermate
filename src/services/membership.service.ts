@@ -92,6 +92,41 @@ export class MembershipService {
     return membership
   }
 
+  /**
+   * Groups waiting to be switched on that this student is provably in.
+   *
+   * A group can be added by somebody who never writes to Peermate, and it will not
+   * message a stranger to ask what the room is. So the question waits for anybody who
+   * turns out to be in it — which keeps a whole class from being stranded because one
+   * person added the bot and never came back.
+   */
+  async claimable(user: User): Promise<Group[]> {
+    const waiting = (await groupRepository.pending()).filter(
+      (group) => group.shardId === user.shardId,
+    )
+
+    const mine: Group[] = []
+    for (const group of waiting) {
+      if ((await this.belongs(user, group)) === true) mine.push(group)
+    }
+    return mine
+  }
+
+  /**
+   * Whether this student may act on a group: correct its course, say who the lecturer
+   * is, stop it being read.
+   *
+   * Authority over a room is being in it, and nothing else — there is no operator
+   * standing above everyone any more. Proof is the same proof retrieval uses, so a
+   * student can change exactly the groups they can already read from.
+   *
+   * A check that cannot complete refuses. A dropped socket must not be the thing that
+   * grants somebody power over a cohort's announcements.
+   */
+  async mayAdminister(user: User, group: Group): Promise<boolean> {
+    return (await this.belongs(user, group)) === true
+  }
+
   /** true: proved. false: proved not to. null: could not be checked. */
   private async belongs(user: User, group: Group): Promise<boolean | null> {
     if (this.isSamePerson(user, group.addedBy)) return true

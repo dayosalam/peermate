@@ -1,5 +1,6 @@
 import type { User } from '../models/index.js'
 import { groupRepository } from '../repositories/index.js'
+import { membershipService } from './membership.service.js'
 import { courseDisplay } from '../utils/courses.js'
 import { formatTime12 } from '../utils/dates.js'
 
@@ -34,7 +35,6 @@ interface Topic {
 
 interface Context {
   user: User
-  isOperator: boolean
 }
 
 /**
@@ -56,9 +56,9 @@ export class GuidanceService {
     return SELF_STATE.test(text) || (HOW.test(text) && ABOUT_PEERMATE.test(text))
   }
 
-  async answer(user: User, text: string, isOperator: boolean): Promise<string> {
+  async answer(user: User, text: string): Promise<string> {
     const topic = TOPICS.find((candidate) => candidate.match.test(text))
-    return topic ? topic.answer({ user, isOperator }) : general({ user, isOperator })
+    return topic ? topic.answer({ user }) : general({ user })
   }
 }
 
@@ -102,24 +102,19 @@ I can only do this for a course whose files I actually have. If nobody has poste
  *
  * The only source for this is Peermate itself, so answering it with "that's outside
  * what I do" is the least useful thing it could say. A student wondering why they
- * hear nothing from a group usually has one sitting unapproved — the operator sees
- * that queue by name, and the student is told it exists without being shown whose
- * groups are in it.
+ * hear nothing from a group usually has one they have not switched on yet.
  */
-async function listening({ isOperator, user }: Context): Promise<string> {
-  // A student is told about their own rooms and nothing else. `approved()` is every
-  // group on the deployment and `pending()` is the operator's queue, so answering a
-  // student from either named another university's cohort to them.
+async function listening({ user }: Context): Promise<string> {
+  // Their own rooms and nothing else. `approved()` is every group on the deployment,
+  // so answering from it named another university's cohort to them.
   const [live, waiting] = await Promise.all([
-    isOperator ? groupRepository.approved() : groupRepository.forStudent(user.groupJids),
-    isOperator ? groupRepository.pending() : Promise.resolve([]),
+    groupRepository.forStudent(user.groupJids),
+    membershipService.claimable(user),
   ])
 
   // A student cannot be shown the queue, so they are told how to read its absence:
   // "not listed" means either nobody added me or nobody has approved it yet.
-  const unseen = isOperator
-    ? ''
-    : `\n\n_If you added me to a group that isn't listed here, it's waiting on the operator._`
+  const unseen = `\n\n_A group you added that isn't listed here is waiting on you to say which course it is._`
 
   if (live.length === 0 && waiting.length === 0) {
     return `I'm not reading any group yet. Add me to a course group and I'll ask about it — I read nothing until it's approved.${unseen}`
@@ -156,54 +151,36 @@ async function listening({ isOperator, user }: Context): Promise<string> {
     })
     .join('\n')
 
-  const next = isOperator
-    ? `\n\nSend *approve <course>* to start reading ${waiting.length === 1 ? 'it' : 'them'}.`
-    : `\n\nThe operator has to approve ${waiting.length === 1 ? 'it' : 'them'} before I read anything.`
+  const next = `\n\nTell me which course ${waiting.length === 1 ? 'it is' : 'they are'} for and I'll start reading.`
 
-  return `${reading}\n\n*Waiting for approval:*\n${pendingLines}${next}`
+  return `${reading}\n\n*Waiting on you:*\n${pendingLines}${next}`
 }
 
 /**
- * The one that has to be specific.
+ * How a group starts being read.
  *
- * A student who added the bot cannot approve it, and telling them the command would
- * have them typing something that does nothing — so the two answers are different,
- * not the same answer with a caveat.
+ * The answer is the same for everybody now, because authority over a room is being in
+ * it. There is no operator to wait for and no queue belonging to somebody else.
  */
-async function approving({ isOperator }: Context): Promise<string> {
-  const waiting = await groupRepository.pending()
-
-  if (!isOperator) {
-    if (waiting.length === 0) {
-      return `Approving a group is the operator's call — whoever set me up. Nothing is waiting for them right now.
-
-If you've added me to a group, tell me which course it's for and I'll pass it on.`
-    }
-    return `Approving a group is the operator's call — whoever set me up, not me and not you. Anybody can add me to any chat, so somebody has to say it's really a course group.
-
-Tell me which course it's for and I'll pass that on, so they're not deciding blind.`
-  }
+async function approving({ user }: Context): Promise<string> {
+  const waiting = await membershipService.claimable(user)
 
   if (waiting.length === 0) {
-    const live = await groupRepository.approved()
-    return live.length > 0
-      ? `Nothing is waiting for approval — I'm already reading ${live.length} group${live.length === 1 ? '' : 's'}. Send *groups* to see them.`
-      : `Nothing is waiting for approval yet. Add me to a course group and I'll ask you about it.`
+    return `Add me to your course group and I'll ask you which course it is. Say the code and I start reading — nobody else has to approve it.
+
+I read nothing in a group until then, and I never post in one.`
   }
 
   const lines = waiting.map((group) => {
     const suggested = group.proposedCourse ?? group.defaultCourse
-    const who = group.proposedBy ? ` _(${group.proposedBy} says so)_` : ''
     return suggested
-      ? `• *${group.name ?? group.chatJid}* → send *approve ${suggested}*${who}`
-      : `• *${group.name ?? group.chatJid}* → send *approve <course code>*, like *approve CVE 575*`
+      ? `• *${group.name ?? group.chatJid}* — looks like *${suggested}*`
+      : `• *${group.name ?? group.chatJid}* — send the course code, like *CVE 575*`
   })
 
-  return `Right here, in this chat — not in the group. I don't read a group until it's approved, and I never post in one.
+  return `Right here, in this chat — not in the group. I don't read a group until you tell me what it is, and I never post in one.
 
-${lines.join('\n')}
-
-*approve* on its own works too, and I'll use the course above. *ignore group* leaves it alone.`
+${lines.join('\n')}`
 }
 
 function courses({ user }: Context): string {
@@ -246,13 +223,10 @@ function quiet(): string {
 Nothing is lost while I'm quiet: it all turns up in your next digest.`
 }
 
-function general({ isOperator }: Context): string {
-  const operator = isOperator
-    ? `\n\nAs the operator you also have *admin* — approving groups, setting courses, naming who to trust.`
-    : ''
+function general(_context: Context): string {
   return `I sit in your course groups and DM you what matters — test dates, venue changes, deadlines, the voice notes nobody plays. I never post in a group.
 
-Ask me things like *"when is the CSC 301 test?"* or *"CSC 301 resources"*, and send *help* for the full list.${operator}`
+Ask me things like *"when is the CSC 301 test?"* or *"CSC 301 resources"*, and send *help* for the full list.`
 }
 
 export const guidanceService = new GuidanceService()

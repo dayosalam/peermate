@@ -71,11 +71,6 @@ const envSchema = z.object({
   VERIFY_TOKEN: z.string().default(''),
   CLOUD_API_PHONE_NUMBER_ID: z.string().default(''),
 
-  // The operators. The only people Peermate messages without being written to
-  // first. Comma-separated, so the person who runs the bot and the person testing
-  // it on another handset can both approve groups.
-  ADMIN_PHONE: z.string().default(''),
-
   // Baileys logs a failed optional init query at error level on most connects. It
   // is noise — our own connection.update logging covers what actually matters.
   BAILEYS_LOG_LEVEL: z.enum(['silent', 'error', 'warn', 'info', 'debug']).default('silent'),
@@ -161,15 +156,6 @@ export const config = {
     maxDeferMs: defaults.delivery.maxDeferSeconds * 1000,
   },
   ingest: { concurrency: env.INGEST_CONCURRENCY },
-  admin: {
-    /** First entry is the one Peermate writes to; every entry may send commands. */
-    phones: env.ADMIN_PHONE.split(',')
-      .map((value) => value.trim())
-      .filter(Boolean),
-    get phone(): string {
-      return this.phones[0] ?? ''
-    },
-  },
   baileysLogLevel: env.BAILEYS_LOG_LEVEL,
   cloudApi: {
     accessToken: env.ACCESS_TOKEN,

@@ -1,0 +1,136 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Group, User } from '../src/models/index.js'
+
+let mine: Group[] = []
+let allowed = true
+const changed: Array<{ chatJid: string; course: string | null }> = []
+const trusted: Array<{ chatJid: string; name: string; role: string }> = []
+const ignored: string[] = []
+
+vi.mock('../src/repositories/index.js', () => ({
+  groupRepository: {
+    forStudent: vi.fn(async () => mine),
+    findByJid: vi.fn(async (jid: string) => mine.find((g) => g.chatJid === jid) ?? null),
+  },
+  pendingRepository: { unresolved: vi.fn(async () => []), resolve: vi.fn(), openForGroup: vi.fn() },
+  extractionRepository: {},
+  messageRepository: {},
+}))
+
+vi.mock('../src/services/membership.service.js', () => ({
+  membershipService: { mayAdminister: vi.fn(async () => allowed) },
+}))
+
+vi.mock('../src/services/group.service.js', () => ({
+  groupService: {
+    setCourse: vi.fn(async (chatJid: string, course: string | null) => {
+      changed.push({ chatJid, course })
+    }),
+    trust: vi.fn(async (chatJid: string, name: string, role: string) => {
+      trusted.push({ chatJid, name, role })
+    }),
+    ignore: vi.fn(async (chatJid: string) => {
+      ignored.push(chatJid)
+    }),
+  },
+}))
+
+const { toolsByName } = await import('../src/services/agent/tools.js')
+
+const user = { phone: '234', jid: '234@s.whatsapp.net', groupJids: ['g1@g.us'] } as User
+const context = { user, jid: '234@s.whatsapp.net' }
+
+function group(over: Partial<Group> = {}): Group {
+  return {
+    chatJid: 'g1@g.us',
+    name: 'CVE 575 — 2025/26',
+    defaultCourse: 'CVE 575',
+    defaultCourseKey: 'CVE575',
+    status: 'approved',
+    ...over,
+  } as Group
+}
+
+const run = (name: string, args: Record<string, unknown>): Promise<string> =>
+  toolsByName.get(name)!.run(args, context)
+
+beforeEach(() => {
+  mine = [group()]
+  allowed = true
+  changed.length = 0
+  trusted.length = 0
+  ignored.length = 0
+})
+
+/**
+ * Authority over a group is being in it. There is no operator, so these tools are the
+ * whole of it — and the check is made inside each one, not by whoever called it.
+ */
+describe('changing a group', () => {
+  it('corrects the course of the one group they are in', async () => {
+    await run('set_group_course', { group: null, course: 'CVE 581' })
+    expect(changed).toEqual([{ chatJid: 'g1@g.us', course: 'CVE 581' }])
+  })
+
+  it('refuses when membership cannot be proved', async () => {
+    allowed = false
+    await run('set_group_course', { group: null, course: 'CVE 581' })
+    expect(changed).toEqual([])
+  })
+
+  /** The model can pass any string; this is what makes that harmless. */
+  it('resolves nothing for a group they are not in', async () => {
+    const reply = await run('set_group_course', { group: 'Some Other Class', course: 'CVE 581' })
+    expect(changed).toEqual([])
+    expect(reply).toMatch(/not in a group by that name/i)
+  })
+
+  it('will not guess which group when they are in several', async () => {
+    mine = [group(), group({ chatJid: 'g2@g.us', name: 'ABE 501 class' })]
+    await run('set_group_course', { group: null, course: 'CVE 581' })
+    expect(changed).toEqual([])
+  })
+
+  it('picks the named one when they are in several', async () => {
+    mine = [group(), group({ chatJid: 'g2@g.us', name: 'ABE 501 class' })]
+    await run('set_group_course', { group: 'ABE 501 class', course: 'ABE 501' })
+    expect(changed).toEqual([{ chatJid: 'g2@g.us', course: 'ABE 501' }])
+  })
+
+  it('rejects something that is not a course code', async () => {
+    const reply = await run('set_group_course', { group: null, course: 'the one on Tuesday' })
+    expect(changed).toEqual([])
+    expect(reply).toMatch(/not a course code/i)
+  })
+})
+
+describe('recording who to trust', () => {
+  it('records the lecturer for a group they are in', async () => {
+    await run('trust_sender', { group: null, name: 'Dr Bello', role: 'lecturer' })
+    expect(trusted).toEqual([{ chatJid: 'g1@g.us', name: 'Dr Bello', role: 'lecturer' }])
+  })
+
+  it('refuses for a group they cannot be proved to be in', async () => {
+    allowed = false
+    await run('trust_sender', { group: null, name: 'Dr Bello', role: 'lecturer' })
+    expect(trusted).toEqual([])
+  })
+})
+
+describe('stopping a group', () => {
+  it('stops one they are in', async () => {
+    await run('stop_reading_group', { group: null })
+    expect(ignored).toEqual(['g1@g.us'])
+  })
+
+  it('refuses one they are not', async () => {
+    allowed = false
+    await run('stop_reading_group', { group: null })
+    expect(ignored).toEqual([])
+  })
+
+  /** Costly and hard to undo, so the agent holds it for a yes before running it. */
+  it('is held for confirmation rather than run outright', () => {
+    expect(toolsByName.get('stop_reading_group')!.tier).toBe('destructive')
+  })
+})

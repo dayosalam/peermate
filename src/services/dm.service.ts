@@ -10,13 +10,13 @@ import {
 import { config } from '../config.js'
 import { courseDisplay, courseKey, parseCourseList } from '../utils/courses.js'
 import { jidToIdentity } from '../whatsapp/jid.js'
-import { adminService } from './admin.service.js'
 import { agentService, runConfirmed } from './agent/agent.service.js'
 import { conversationService } from './conversation.service.js'
 import { PDF_MIME } from './document-reader.service.js'
 import { DeliveryService } from './delivery.service.js'
 import { courseService } from './course.service.js'
 import { groupService } from './group.service.js'
+import { membershipService } from './membership.service.js'
 import { notifierService } from './notifier.service.js'
 import { onboardingService } from './onboarding.service.js'
 import { reminderService } from './reminder.service.js'
@@ -50,10 +50,6 @@ const PICKS_FOUND = /^(send\s+)?(all|both|everything|\d+(\s*(,|and|&)?\s*\d+)*)\
 
 /** Mid-quiz, these are not answers. */
 const ENDS_QUIZ = /^(stop|end|quit|cancel|enough|abeg stop|i'?m done|done)\b/i
-
-const NOT_AN_OPERATOR = `That's a setup command — only whoever runs Peermate can use it.
-
-If a group needs connecting, tell me which course it's for and I'll pass it on. Send *help* for what you can do.`
 
 const AGREED =
   /^(yes|yeah|yep|yh|correct|right|exactly|that'?s (it|right)|sure|ok(ay)?|na so|👍)\b/i
@@ -153,13 +149,15 @@ const inFlight = new Map<string, Promise<void>>()
 /**
  * Everything a student sends in a 1:1 DM lands here.
  *
- * Order matters, and only three things come before the agent. The operator console,
- * because an operator typing "status" is running a command, not asking a question.
- * Onboarding, because an unregistered sender has no courses and nothing to retrieve
- * against. And an answer to a question Peermate itself just asked, because a "no" to
- * a wipe must mean no. Everything else — including "pause alerts", "my courses" and
- * a bare course code, all of which used to be matched literally here — is language,
- * and language is the agent's to read.
+ * Order matters, and only two things come before the agent. Onboarding, because an
+ * unregistered sender has no courses and nothing to retrieve against; and an answer to
+ * a question Peermate itself just asked, because a "no" to a wipe must mean no.
+ * Everything else — including "pause alerts", "my courses" and a bare course code, all
+ * of which used to be matched literally here — is language, and language is the
+ * agent's to read.
+ *
+ * There is no operator console any longer. Peermate has a relationship with each
+ * student and nobody stands above them: authority over a group is being in it.
  */
 export class DmService {
   async handle(message: Message): Promise<void> {
@@ -185,14 +183,6 @@ export class DmService {
       .filter(Boolean)
       .join('\n')
       .trim()
-
-    if (text && adminService.isOperator(phone)) {
-      const reply = await adminService.handle(text)
-      if (reply) {
-        await notifierService.sendText(message.chatJid, reply)
-        return
-      }
-    }
 
     const onboardingReply = await onboardingService.handle(message)
     if (onboardingReply) {
@@ -243,6 +233,11 @@ export class DmService {
     // An answer to a question Peermate asked, before anything reinterprets it.
     if (await this.answerPending(user, text, message.chatJid)) return
 
+    // Somebody can add Peermate to a group before they have ever written to it, and it
+    // will not message a stranger to ask what the group is. The question waits here
+    // until they make contact, which is this moment.
+    if (await this.claimAddedGroup(user, message.chatJid)) return
+
     // A photographed timetable is not a question. Routed as one it becomes a search
     // for whatever the OCR happened to say, which is never what they meant.
     if (timetableService.looksLikeTimetable(message)) {
@@ -275,11 +270,6 @@ export class DmService {
         message.chatJid,
         "Yes to what? I'm not waiting on an answer to anything right now — if I asked you something a while back, it's expired. Ask me again and I'll pick it up.",
       )
-      return
-    }
-
-    if (adminService.looksLikeOperatorCommand(text)) {
-      await this.say(phone, message.chatJid, NOT_AN_OPERATOR)
       return
     }
 
@@ -324,6 +314,46 @@ export class DmService {
   private async say(phone: string, jid: string, body: string): Promise<void> {
     await notifierService.sendText(jid, body)
     await conversationService.rememberTurn(phone, 'peermate', body)
+  }
+
+  /**
+   * Asks about a group this student added while Peermate had no way to reach them.
+   *
+   * Only when nothing else is pending: a student who added a group last week and has
+   * just asked when their test is wants an answer, not a question. It keeps until the
+   * next message, and the group reads nothing meanwhile.
+   */
+  private async claimAddedGroup(user: User, jid: string): Promise<boolean> {
+    const conversation = await conversationService.get(user.phone)
+    if (conversation?.pendingAction) return false
+
+    const [waiting] = await membershipService.claimable(user)
+    if (!waiting) return false
+
+    const where = waiting.name ?? 'a group'
+    if (waiting.defaultCourse) {
+      await conversationService.proposeGroup(user.phone, {
+        chatJid: waiting.chatJid,
+        groupName: waiting.name,
+        course: waiting.defaultCourse,
+      })
+      await this.say(
+        user.phone,
+        jid,
+        `Before that — you added me to *${where}*.
+
+Looks like *${waiting.defaultCourse}* from the name. Send *yes* and I'll start listening, or send the right code.`,
+      )
+    } else {
+      await this.say(
+        user.phone,
+        jid,
+        `Before that — you added me to *${where}*.
+
+Which course is it for? Send the code, like *CVE 575*. I'm reading nothing in there until you tell me.`,
+      )
+    }
+    return true
   }
 
   /** Returns the text to send, or null when the branch already replied itself. */
@@ -754,17 +784,38 @@ Send *yes* and I'll pass it on. If the code is wrong, just send the right one.${
     if (!AGREED.test(text) && !corrected) return null
 
     await conversationService.proposeGroup(user.phone, null)
-    await groupService.propose(proposal.chatJid, proposal.course, user.displayName ?? user.phone)
+    // The identity, not the display name: whether this switches the group on is decided
+    // against the stored adder, and a name is not who somebody is.
+    const outcome = await groupService.propose(
+      proposal.chatJid,
+      proposal.course,
+      user.displayName ?? user.phone,
+      user.jid ?? user.phone,
+    )
 
+    const where = proposal.groupName ?? 'that group'
     const key = courseKey(proposal.course)
     const mine = key ? user.courseKeys.includes(key) : false
+
+    if (outcome?.approved) {
+      const tail = mine
+        ? `You're taking ${proposal.course}, so everything said there reaches you from now on.`
+        : `You're not registered for ${proposal.course} — send *add ${proposal.course}* if you want its announcements.`
+
+      return `Done — I'm listening to *${where}* and filing it under *${proposal.course}* ✅
+
+I only know what's said from now on, not what came before.
+
+${tail}`
+    }
+
     const tail = mine
       ? `You're taking ${proposal.course}, so once it's approved you'll get everything from it.`
       : `You're not registered for ${proposal.course} — send *add ${proposal.course}* if you want its announcements.`
 
-    return `Noted — *${proposal.groupName ?? 'that group'}* is for *${proposal.course}*.
+    return `Noted — *${where}* is for *${proposal.course}*.
 
-I'm not reading it yet: a group has to be approved before I look at anything in it. I've passed this on, and I'll start listening as soon as it's approved.
+I'm not reading it yet: somebody who is in it has to switch it on, and you didn't add me to it. I've passed this on.
 
 ${tail}`
   }

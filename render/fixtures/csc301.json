@@ -1,0 +1,26 @@
+{
+  "title": "Normalisation, from the ground up",
+  "course": "CSC 301",
+  "scenes": [
+    {
+      "narration": "Let's go through normalisation. Three things: what it is for, what first normal form asks of a table, and why the whole thing matters when your data starts changing.",
+      "visual": { "kind": "title", "text": "Normalisation, from the ground up" },
+      "source": null
+    },
+    {
+      "narration": "Normalisation is how you organise a table so the same fact is not written down twice. If a lecturer's office number appears against every one of their courses, then moving office means finding every row.",
+      "visual": { "kind": "slide", "pdfPath": "../.local/fixtures/CSC301_wk3_slides.pdf", "page": 1 },
+      "source": "CSC301_wk3_slides.pdf, p.1"
+    },
+    {
+      "narration": "First normal form asks one thing: every cell holds a single value. No lists, no repeating columns. If you have a phone one and a phone two column, you are not in first normal form.",
+      "visual": { "kind": "slide", "pdfPath": "../.local/fixtures/CSC301_wk3_slides.pdf", "page": 1 },
+      "source": "CSC301_wk3_slides.pdf, p.1"
+    },
+    {
+      "narration": "The one thing to keep: normalisation is not about saving space. It is about making sure there is exactly one place to change when something changes.",
+      "visual": { "kind": "title", "text": "One fact, one place" },
+      "source": null
+    }
+  ]
+}

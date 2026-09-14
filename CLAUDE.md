@@ -40,16 +40,22 @@ npm test             # vitest
 npm run typecheck    # tsc over src *and* tests
 npm run infra:up     # docker compose (mongo, minio, chroma)
 
-npm run backfill-tenancy    # REQUIRED once after deploying tenancy — see below
+npm run backfill-tenancy    # runs itself at boot; this is the manual re-run
 npm run migrate-to-atlas    # --indexes | --backfill | --compare
 npm run export-fixtures     # freeze the real group, anonymised, for evals
 npm run eval                # retrieval recall and answer quality
 ```
 
-**`npm run backfill-tenancy` is not optional.** Retrieval is scoped by
-`user.groupJids`, and an empty boundary returns nothing rather than everything. Every
-account that existed before tenancy has no groups and therefore hears nothing until
-this runs.
+**Tenancy backfills itself on boot.** Retrieval is scoped by `user.groupJids`, and an
+empty boundary returns nothing rather than everything, so an account that predates
+tenancy hears silence — with clean logs — until it has groups. That made it a deploy
+step somebody had to remember, which is the kind of step that gets forgotten exactly
+once. `index.ts` runs it after the database connects and before anything is served.
+It is idempotent: it skips anyone already scoped, so every boot after the first reads
+two collections and writes nothing. It fails soft, because a backfill that cannot
+finish leaves some students hearing less than they should, while a boot that dies on
+it leaves all of them hearing nothing. The command still exists for a manual re-run
+after an operator resolves an ambiguous group.
 
 No Docker on this machine — see [README.md](README.md) for the direct-daemon fallback.
 

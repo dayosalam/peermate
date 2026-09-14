@@ -22,7 +22,6 @@ import { formatStamp, formatTime12 } from '../utils/dates.js'
 import { conversationService } from './conversation.service.js'
 import { deliveryService } from './delivery.service.js'
 import { notifierService } from './notifier.service.js'
-import { operatorJid } from './operator.js'
 
 /**
  * The instant DM. Every new announcement goes to every student subscribed to that
@@ -297,15 +296,17 @@ _${source.senderName ?? 'unknown'}${role ? ` (${role})` : ''}, ${stamp}_`
 
     logger.warn(
       { source: source.waMessageId, confidence: extraction.confidence },
-      'heard too poorly to announce, asking the operator',
+      'heard too poorly to announce',
     )
 
-    const operator = await operatorJid()
-    if (!operator) return
+    // The person who switched this group on, not anybody running Peermate. They were
+    // in the room; they are the only one who can say what was actually said.
+    const ask = group?.approvedBy ?? null
+    if (!ask) return
 
     const stamp = formatStamp(source.timestamp, config.digest.timezone)
     await notifierService.sendText(
-      operator,
+      ask,
       `🔉 I think I heard something in *${group?.name ?? source.chatJid}* but the recording was unclear, so I haven't told anyone.
 
 _"${heard}"_
@@ -313,7 +314,7 @@ _${source.senderName ?? 'unknown'}, ${source.type === 'audio' ? 'voice note' : '
 
 Transcript: _"${(source.transcript ?? '').slice(0, 300)}"_
 
-Reply *set ${extraction.eventId} <course>* if it is right, or ignore it.`,
+If that's right, tell me which course it's for and I'll pass it on. If not, just say so.`,
     )
   }
 
@@ -342,16 +343,17 @@ Reply *set ${extraction.eventId} <course>* if it is right, or ignore it.`,
       resolvedCourse: null,
     })
 
-    logger.warn(
-      { source: source.waMessageId, group: group?.name },
-      'announcement had no course, asking the operator',
-    )
+    // Asked of whoever switched this group on, not of anybody running Peermate. They
+    // were in the room when it was said; nobody else was, and nobody else could answer.
+    // If they cannot be reached the row simply stays open — a member of that group can
+    // still answer it later, and an unanswered question is better than a guess.
+    const ask = group?.approvedBy ?? null
 
-    const operator = await operatorJid()
-    if (!operator) {
-      logger.warn('no ADMIN_PHONE set — nobody can answer which course this was')
-      return
-    }
+    logger.warn(
+      { source: source.waMessageId, group: group?.name, asked: ask },
+      'announcement had no course',
+    )
+    if (!ask) return
 
     const stamp = formatStamp(source.timestamp, config.digest.timezone)
     const body = `❓ I heard something in *${group?.name ?? source.chatJid}* but I don't know which course it's for, so I haven't told anyone yet.
@@ -365,7 +367,7 @@ Which course is this? Reply:
 • *ignore* — skip it`
 
     try {
-      await notifierService.sendText(operator, body)
+      await notifierService.sendText(ask, body)
     } catch (error) {
       logger.error({ err: error }, 'could not ask about unroutable announcement')
     }

@@ -15,6 +15,7 @@ function group(trusted: Group['trustedSenders']): Group {
     participantCount: null,
     proposedCourse: null,
     proposedBy: null,
+    approvedBy: null,
     trustedSenders: trusted,
     joinedAt: new Date(),
     approvedAt: new Date(),

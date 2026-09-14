@@ -134,7 +134,9 @@ vi.mock('../src/services/group.service.js', () => ({
   groupService: {
     propose: vi.fn(async (chatJid: string, course: string) => {
       proposed.push({ chatJid, course })
+      return { group: null, approved: false }
     }),
+    claimableBy: vi.fn(async () => []),
   },
 }))
 
@@ -271,9 +273,13 @@ describe('messages that are not questions', () => {
     expect(outbox.at(-1)).toMatch(/send \*help\*/i)
   })
 
-  it('refuses an operator command from a student', async () => {
-    await dmService.handle(dm('approve CSC 301'))
-    expect(outbox.at(-1)).toMatch(/only whoever runs Peermate/i)
+  /**
+   * There are no operator commands any longer, so "approve CVE 575" is just language
+   * and the agent reads it like anything else.
+   */
+  it('treats a setup-sounding message as language, not a refusal', async () => {
+    await dmService.handle(dm('approve CVE 575'))
+    expect(agentCalls.at(-1)).toBe('approve CVE 575')
   })
 })
 
@@ -432,6 +438,7 @@ function pendingGroup(over: Partial<Group> = {}): Group {
     participantCount: 2,
     proposedCourse: null,
     proposedBy: null,
+    approvedBy: null,
     trustedSenders: [],
     joinedAt: new Date(),
     approvedAt: null,

@@ -1,0 +1,22 @@
+{
+  "name": "peermate-render",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Turns a grounded storyboard into a narrated slide video. Isolated from the bot on purpose.",
+  "scripts": {
+    "render": "tsx --env-file=.env src/cli.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "tsx --test src/*.test.ts"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.80",
+    "openai": "^6.10.0",
+    "unpdf": "^1.8.1",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

@@ -70,15 +70,21 @@ rules out rolling deploys: use `stop-first` (Compose), `Recreate` (Kubernetes) o
 
 ## Operating it
 
-### After deploying tenancy — run this or nothing works
-
-```bash
-npm run backfill-tenancy
-```
+### Tenancy backfill — automatic, on every boot
 
 Retrieval is scoped by the groups a student belongs to, and an empty boundary returns
 nothing rather than everything. Every account created before that change has no groups
-recorded, so it hears nothing until this runs. It reports what it could not resolve
+recorded, so it hears nothing until it is scoped. That used to be a deploy step
+somebody had to remember; it now runs itself in `index.ts`, after the database
+connects and before anything is served.
+
+It is idempotent — it skips anyone already scoped — so the cost of every boot after
+the first is two reads and no writes. To re-run it by hand, after resolving a group it
+could not place:
+
+```bash
+npm run backfill-tenancy
+``` It reports what it could not resolve
 rather than guessing — a course carried by two groups is exactly the cross-institution
 collision the boundary exists to stop, and picking one would be guessing which
 university somebody attends.
