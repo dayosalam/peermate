@@ -30,7 +30,7 @@
     "reset:local": "DOTENV_CONFIG_PATH=.env.local tsx src/scripts/reset.ts"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.9",
+    "@whiskeysockets/baileys": "7.0.0-rc14",
     "chromadb": "^3.5.0",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
