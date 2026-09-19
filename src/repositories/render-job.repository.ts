@@ -42,6 +42,14 @@ export class RenderJobRepository extends BaseRepository<RenderJob> {
     return (result as RenderJob | null) ?? null
   }
 
+  /** What is being rendered right now, for whoever is telling the students about it. */
+  async active(shardId: string): Promise<RenderJob[]> {
+    return this.collection
+      .find({ shardId, status: 'rendering' } as never)
+      .sort({ createdAt: 1 })
+      .toArray() as Promise<RenderJob[]>
+  }
+
   async finish(key: string, patch: Partial<RenderJob>): Promise<void> {
     await this.collection.updateOne({ key } as never, {
       $set: { ...patch, updatedAt: new Date() } as never,
@@ -60,6 +68,11 @@ export class RenderJobRepository extends BaseRepository<RenderJob> {
       $set: { status: 'pending', updatedAt: new Date() } as never,
     })
     return result.modifiedCount
+  }
+
+  /** Videos they asked for and will never be sent. */
+  async clear(phone: string): Promise<void> {
+    await this.collection.deleteMany({ phone } as never)
   }
 }
 

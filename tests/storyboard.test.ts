@@ -65,8 +65,12 @@ beforeEach(() => {
 describe('turning a script into a render job', () => {
   it('resolves a cited file to the key it is stored under', async () => {
     const { job } = await storyboardService.enqueue(student, 'CVE575', 'shear', script, 'j@s')
-    expect(job.scenes[0]!.mediaKey).toBe('doc/cve575-wk4')
-    expect(job.scenes[0]!.page).toBe(8)
+    expect(job.scenes[0]!.visual).toEqual({
+      kind: 'slide',
+      mediaKey: 'doc/cve575-wk4',
+      fileName: 'CVE575_wk4.pdf',
+      page: 8,
+    })
     expect(job.scenes[0]!.source).toBe('CVE575_wk4.pdf, p.8')
   })
 
@@ -78,7 +82,7 @@ describe('turning a script into a render job', () => {
 
   it('leaves a scene with no citation without a visual', async () => {
     const { job } = await storyboardService.enqueue(student, 'CVE575', 'shear', script, 'j@s')
-    expect(job.scenes[1]!.mediaKey).toBeNull()
+    expect(job.scenes[1]!.visual.kind).toBe('title')
     expect(job.scenes[1]!.source).toBeNull()
   })
 
@@ -91,13 +95,13 @@ describe('turning a script into a render job', () => {
     const named = { ...script, scenes: [{ ...script.scenes[0]!, fileName: 'notice.jpg' }] }
     const { job } = await storyboardService.enqueue(student, 'CVE575', 'shear', named, 'j@s')
     expect(job.scenes[0]!.narration).toBe('Acts parallel to the section.')
-    expect(job.scenes[0]!.mediaKey).toBeNull()
+    expect(job.scenes[0]!.visual.kind).toBe('title')
   })
 
   it('drops a visual for a file that is not on their shelf at all', async () => {
     shelf = []
     const { job } = await storyboardService.enqueue(student, 'CVE575', 'shear', script, 'j@s')
-    expect(job.scenes[0]!.mediaKey).toBeNull()
+    expect(job.scenes[0]!.visual.kind).toBe('title')
   })
 
   /** Rendering costs narration, so asking twice must not pay twice. */

@@ -14,6 +14,17 @@ export type DigestFormat = z.infer<typeof DigestFormat>
 export const UserSchema = z.object({
   phone: z.string(),
   jid: z.string(),
+  /**
+   * Their LID, once it is known.
+   *
+   * WhatsApp addresses the same person two ways, and a group's participant list often
+   * uses only the LID. Holding one spelling and comparing it against the other is how
+   * a student is refused their own group: the mismatch is mechanical, and reads
+   * exactly like proof they are not a member. Learned from a participant list that
+   * gives both, so the mapping is recorded once rather than re-derived and failed at
+   * every call site.
+   */
+  lid: z.string().nullable().default(null),
   /** WhatsApp's pushName — whatever their profile says. */
   name: z.string().nullable(),
   /** What they asked to be called. Used in every message Peermate sends them. */

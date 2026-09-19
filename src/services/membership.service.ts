@@ -2,7 +2,8 @@ import { logger } from '../core/logger.js'
 import type { Group, User } from '../models/index.js'
 import { groupRepository, userRepository } from '../repositories/index.js'
 import { getSocket } from '../whatsapp/socket.js'
-import { jidToPhone } from '../whatsapp/jid.js'
+import { jidToPhone, LID_SUFFIX } from '../whatsapp/jid.js'
+import type { GroupParticipant } from '@whiskeysockets/baileys'
 
 export interface Membership {
   /** Groups the student was proved to belong to. */
@@ -113,6 +114,25 @@ export class MembershipService {
   }
 
   /**
+   * Pending groups on this student's shard that they could *not* be proved into.
+   *
+   * The pool a half-remembered name is matched against. Nothing here is disclosed:
+   * a group is only ever named back to a student who named it closely first, which
+   * is what keeps this from becoming a directory of other people's cohorts.
+   */
+  async unplaced(user: User): Promise<Group[]> {
+    const waiting = (await groupRepository.pending()).filter(
+      (group) => group.shardId === user.shardId,
+    )
+
+    const stuck: Group[] = []
+    for (const group of waiting) {
+      if ((await this.belongs(user, group)) !== true) stuck.push(group)
+    }
+    return stuck
+  }
+
+  /**
    * Whether this student may act on a group: correct its course, say who the lecturer
    * is, stop it being read.
    *
@@ -131,9 +151,9 @@ export class MembershipService {
   private async belongs(user: User, group: Group): Promise<boolean | null> {
     if (this.isSamePerson(user, group.addedBy)) return true
 
+    let metadata
     try {
-      const metadata = await getSocket().groupMetadata(group.chatJid)
-      return metadata.participants.some((participant) => this.isSamePerson(user, participant.id))
+      metadata = await getSocket().groupMetadata(group.chatJid)
     } catch (error) {
       logger.warn(
         { err: error, chatJid: group.chatJid, phone: user.phone },
@@ -141,6 +161,69 @@ export class MembershipService {
       )
       return null
     }
+
+    let comparable = false
+    for (const participant of metadata.participants) {
+      // Every spelling WhatsApp offers. It hands us the phone number in its own field
+      // and we used to read only `id`, which in a LID-addressed group is a LID — so a
+      // real member matched nothing.
+      const spellings = [participant.id, participant.lid, participant.phoneNumber]
+      if (spellings.some((spelling) => this.isSamePerson(user, spelling))) {
+        await this.learnLid(user, participant)
+        return true
+      }
+      if (spellings.some((spelling) => this.knowsNamespace(user, spelling))) comparable = true
+    }
+
+    // Absent from a list we could actually read against, or a list written entirely in
+    // a namespace we hold no address in? The first is proof; the second is ignorance,
+    // and returning `false` for it refuses a student their own group forever with
+    // nothing logged. Only the first is an answer.
+    // Shapes, not values: enough to tell a LID-addressed group from a missing phone
+    // number without writing anybody's number into the logs. This is the one place
+    // that can answer why a student was refused their own group, and guessing at it
+    // from a screenshot is what cost the last round.
+    const shape = {
+      chatJid: group.chatJid,
+      addressing: metadata.addressingMode ?? 'unset',
+      participants: metadata.participants.length,
+      idsAreLids: metadata.participants.filter((one) => one.id.endsWith(LID_SUFFIX)).length,
+      withPhoneNumber: metadata.participants.filter((one) => one.phoneNumber).length,
+      withLid: metadata.participants.filter((one) => one.lid).length,
+      studentJidIsLid: user.jid.endsWith(LID_SUFFIX),
+      studentLidKnown: Boolean(user.lid),
+      addedByIsLid: group.addedBy?.endsWith(LID_SUFFIX) ?? null,
+    }
+
+    if (comparable) {
+      logger.info(shape, 'student is not in this group')
+      return false
+    }
+    logger.warn(shape, 'no comparable identity in the participant list — left unverified')
+    return null
+  }
+
+  /**
+   * Records the LID for a student once a participant list gives both spellings.
+   *
+   * The list is the only place the two namespaces appear side by side, so this is
+   * where the mapping can be learned. Best-effort: failing to store it costs another
+   * lookup, never an answer.
+   */
+  private async learnLid(user: User, participant: GroupParticipant): Promise<void> {
+    const lid = participant.lid ?? (participant.id.endsWith(LID_SUFFIX) ? participant.id : null)
+    if (!lid || user.lid === lid) return
+    try {
+      await userRepository.upsert({ ...user, lid })
+    } catch (error) {
+      logger.warn({ err: error, phone: user.phone }, 'could not store lid')
+    }
+  }
+
+  /** Whether this spelling is in a namespace we hold an address for at all. */
+  private knowsNamespace(user: User, jid: string | null | undefined): boolean {
+    if (!jid) return false
+    return jid.endsWith(LID_SUFFIX) ? Boolean(user.lid) || user.jid.endsWith(LID_SUFFIX) : true
   }
 
   /**
@@ -150,7 +233,7 @@ export class MembershipService {
    */
   private isSamePerson(user: User, jid: string | null | undefined): boolean {
     if (!jid) return false
-    if (jid === user.jid) return true
+    if (jid === user.jid || (user.lid && jid === user.lid)) return true
 
     const theirs = jidToPhone(jid)
     return Boolean(theirs && theirs === user.phone)

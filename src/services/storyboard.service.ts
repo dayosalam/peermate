@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto'
 import { logger } from '../core/logger.js'
-import type { RenderJob, Resource, User } from '../models/index.js'
+import type { JobScene, JobVisual, RenderJob, Resource, User } from '../models/index.js'
 import { renderJobRepository, resourceRepository } from '../repositories/index.js'
 import { config } from '../config.js'
 import { PDF_MIME } from './document-reader.service.js'
-import { describe, type Explainer } from './explainer.service.js'
+import { describe, type Explainer, type Scene } from './explainer.service.js'
 
 /**
  * Turns a script into a job to render it.
@@ -30,16 +30,11 @@ export class StoryboardService {
     const shelf = await resourceRepository.forCourse(courseKey, user.groupJids)
     const byName = new Map(shelf.map((file) => [file.fileName, file]))
 
-    const scenes = explainer.scenes.map((scene) => {
-      const file = scene.fileName ? byName.get(scene.fileName) : undefined
-      return {
-        narration: scene.narration,
-        mediaKey: renderable(file) ? file.mediaKey : null,
-        fileName: renderable(file) ? file.fileName : null,
-        page: renderable(file) ? scene.page : null,
-        source: describe(scene),
-      }
-    })
+    const scenes: JobScene[] = explainer.scenes.map((scene) => ({
+      narration: scene.narration,
+      visual: visualFor(scene, byName, explainer.title),
+      source: describe(scene),
+    }))
 
     const job: RenderJob = {
       key: keyFor(user.phone, courseKey, topic),
@@ -53,6 +48,10 @@ export class StoryboardService {
       status: 'pending',
       attempts: 0,
       lastError: null,
+      progress: 0,
+      stage: null,
+      startedAt: null,
+      progressMessage: null,
       videoPath: null,
       playbackUrl: null,
       bytes: null,
@@ -69,13 +68,26 @@ export class StoryboardService {
         phone: user.phone,
         courseKey,
         scenes: scenes.length,
-        withSlides: scenes.filter((scene) => scene.mediaKey).length,
+        withSlides: scenes.filter((scene) => scene.visual.kind === 'slide').length,
         fresh,
       },
       'storyboard queued',
     )
     return { job: stored, fresh }
   }
+}
+
+/**
+ * The page this beat cites, or a title card.
+ *
+ * Never `generated`: that judgement needs the narration in front of it, which the model
+ * writing the script has and this mapping does not.
+ */
+function visualFor(scene: Scene, byName: Map<string, Resource>, title: string): JobVisual {
+  const file = scene.fileName ? byName.get(scene.fileName) : undefined
+  return renderable(file)
+    ? { kind: 'slide', mediaKey: file.mediaKey, fileName: file.fileName, page: scene.page }
+    : { kind: 'title', text: title }
 }
 
 /**

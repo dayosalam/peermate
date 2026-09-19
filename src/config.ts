@@ -61,6 +61,16 @@ const envSchema = z.object({
 
   INGEST_CONCURRENCY: z.coerce.number().default(defaults.ingest.concurrency),
 
+  // How the render worker starts `render/`. A subprocess, never an import: its PDF
+  // rasteriser and native canvas have no business in the image the socket runs in.
+  // Off by default: the video path is built and tested, but not yet connected to the
+  // agent. Turning it on exposes render_explainer and offers walkthroughs — neither of
+  // which works unless a render worker is actually running.
+  RENDER_VIDEO_ENABLED: booleanFromEnv.default('false'),
+  RENDER_CWD: z.string().default('render'),
+  RENDER_COMMAND: z.string().default('npx'),
+  RENDER_ARGS: z.string().default('tsx,--env-file=.env,src/cli.ts'),
+
   // Off during a live demo: an alert held for a minute looks like an alert that
   // never came, when the whole point on screen is that it arrives instantly.
   DEFER_ALERTS: booleanFromEnv.default('true'),
@@ -156,6 +166,12 @@ export const config = {
     maxDeferMs: defaults.delivery.maxDeferSeconds * 1000,
   },
   ingest: { concurrency: env.INGEST_CONCURRENCY },
+  render: {
+    enabled: env.RENDER_VIDEO_ENABLED,
+    cwd: env.RENDER_CWD,
+    command: env.RENDER_COMMAND,
+    args: env.RENDER_ARGS.split(',').filter(Boolean),
+  },
   baileysLogLevel: env.BAILEYS_LOG_LEVEL,
   cloudApi: {
     accessToken: env.ACCESS_TOKEN,

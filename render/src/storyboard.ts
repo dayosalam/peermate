@@ -19,6 +19,16 @@ export const VisualSchema = z.discriminatedUnion('kind', [
     page: z.number().int().positive(),
   }),
   z.object({ kind: z.literal('title'), text: z.string() }),
+  /**
+   * An image made for this beat rather than taken from the material. Only where it
+   * cannot carry content — an opener, a break, a closing card. Never a diagram or a
+   * formula: that is what a generated image gets confidently wrong, and a student
+   * revising from it is the last person able to notice.
+   *
+   * Its own variant so the choice is recorded rather than implied, which is what lets a
+   * test assert the rule held.
+   */
+  z.object({ kind: z.literal('generated'), prompt: z.string().min(1) }),
 ])
 export type Visual = z.infer<typeof VisualSchema>
 
@@ -41,6 +51,8 @@ export interface Rendered {
   path: string
   bytes: number
   durationSec: number
+  /** Where the network is already hosting it — the only form that fits when the file does not. */
+  playbackUrl: string
   /**
    * Whether WhatsApp will carry this as a video in the chat.
    *

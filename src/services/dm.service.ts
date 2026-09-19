@@ -55,6 +55,17 @@ const AGREED =
   /^(yes|yeah|yep|yh|correct|right|exactly|that'?s (it|right)|sure|ok(ay)?|na so|👍)\b/i
 const DECLINED = /^(no|nope|nah|wrong|not (that|it)|different|another)\b/i
 
+/**
+ * A group that carries a whole department rather than one course.
+ *
+ * Accepted as an answer rather than argued with: a tester said this twice, was asked
+ * the same question a third time, and gave up. The extractor already reads the course
+ * out of each message and only falls back to the group's, so a group with no course
+ * files each announcement under whatever it names.
+ */
+const GENERAL =
+  /\b(general|generic|all (of )?(my |our )?courses|every course|whole (department|class|set)|department(al)? group|not (for )?(a|one) (particular |specific )?course|no (particular |specific )?course)\b/i
+
 /** One pictograph or several, with nothing else in the message. */
 const EMOJI_ONLY = /^(?:[\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\u{FE0F}\u{200D}]|\s)+$/u
 const PUZZLED = /[\u{2753}\u{2754}\u{1F914}\u{1F615}\u{1F644}\u{1F928}]/u
@@ -236,7 +247,12 @@ export class DmService {
     // Somebody can add Peermate to a group before they have ever written to it, and it
     // will not message a stranger to ask what the group is. The question waits here
     // until they make contact, which is this moment.
-    if (await this.claimAddedGroup(user, message.chatJid)) return
+    //
+    // Asked *as well as* answering, never instead. Returning here threw the student's
+    // message away and replied with this question — so "wipe everything about me" and
+    // "restart" were both answered with "which course is that group?", and the word
+    // "Before that" promised an answer that never came.
+    await this.claimAddedGroup(user, message.chatJid)
 
     // A photographed timetable is not a question. Routed as one it becomes a search
     // for whatever the OCR happened to say, which is never what they meant.
@@ -330,7 +346,7 @@ export class DmService {
     const [waiting] = await membershipService.claimable(user)
     if (!waiting) return false
 
-    const where = waiting.name ?? 'a group'
+    const where = describeGroup(waiting)
     if (waiting.defaultCourse) {
       await conversationService.proposeGroup(user.phone, {
         chatJid: waiting.chatJid,
@@ -345,12 +361,19 @@ export class DmService {
 Looks like *${waiting.defaultCourse}* from the name. Send *yes* and I'll start listening, or send the right code.`,
       )
     } else {
+      // Recorded before it is asked. Without this the next message finds nothing
+      // pending, re-enters here, and asks again — the student answers into a loop.
+      await conversationService.proposeGroup(user.phone, {
+        chatJid: waiting.chatJid,
+        groupName: waiting.name,
+        course: null,
+      })
       await this.say(
         user.phone,
         jid,
         `Before that — you added me to *${where}*.
 
-Which course is it for? Send the code, like *CVE 575*. I'm reading nothing in there until you tell me.`,
+Which course is it for? Send the code, like *CVE 575*. If it carries every course, say *general*. I'm reading nothing in there until you tell me.`,
       )
     }
     return true
@@ -580,7 +603,11 @@ If I got a code wrong, send *remove <code>*.`
       return true
     }
 
-    if (conversation?.pendingAction === 'confirm_group_course' && conversation.proposal) {
+    if (
+      (conversation?.pendingAction === 'confirm_group_course' ||
+        conversation?.pendingAction === 'awaiting_group_course') &&
+      conversation.proposal
+    ) {
       const reply = await this.resolveGroupProposal(user, conversation.proposal, text)
       if (!reply) return false
       await this.say(user.phone, jid, reply)
@@ -767,6 +794,13 @@ Send *yes* and I'll pass it on. If the code is wrong, just send the right one.${
     proposal: NonNullable<Conversation['proposal']>,
     text: string,
   ): Promise<string | null> {
+    // Said before any code is looked for: "not for a particular course" contains no
+    // code, and a student who has to spell that out twice stops answering.
+    if (GENERAL.test(text)) {
+      await conversationService.proposeGroup(user.phone, null)
+      return this.acceptGroup(user, proposal, null)
+    }
+
     // A different code is a correction, not a refusal — take it and ask again rather
     // than making them say no first.
     const [corrected] = parseCourseList(text)
@@ -777,43 +811,73 @@ Send *yes* and I'll pass it on. If the code is wrong, just send the right one.${
     }
 
     if (DECLINED.test(text)) {
-      await conversationService.proposeGroup(user.phone, null)
-      return `No problem — which course is *${proposal.groupName ?? 'that group'}* for? Send the code, like *CVE 575*.`
+      await conversationService.proposeGroup(user.phone, { ...proposal, course: null })
+      return `No problem — which course is *${proposal.groupName ?? 'that group'}* for? Send the code, like *CVE 575*. If it carries every course, say *general*.`
     }
 
     if (!AGREED.test(text) && !corrected) return null
 
     await conversationService.proposeGroup(user.phone, null)
+    return this.acceptGroup(user, proposal, proposal.course)
+  }
+
+  /**
+   * Switches a group on, under one course or under none.
+   *
+   * A null course is a group carrying a whole department. Nothing downstream needs
+   * changing for it: the extractor reads the course out of each message and only falls
+   * back to the group's, and an announcement naming no course is already either
+   * department-wide or dropped.
+   */
+  private async acceptGroup(
+    user: User,
+    proposal: NonNullable<Conversation['proposal']>,
+    course: string | null,
+  ): Promise<string> {
+    // Nobody on record as having added it: this student named it and confirmed it, and
+    // no proof was available. Recorded before proposing, or approval stalls on an
+    // adder that does not exist and the group stays silent for everyone.
+    await groupService.claim(
+      proposal.chatJid,
+      user.jid ?? user.phone,
+      user.displayName ?? user.phone,
+    )
+
     // The identity, not the display name: whether this switches the group on is decided
     // against the stored adder, and a name is not who somebody is.
     const outcome = await groupService.propose(
       proposal.chatJid,
-      proposal.course,
+      course,
       user.displayName ?? user.phone,
       user.jid ?? user.phone,
     )
 
     const where = proposal.groupName ?? 'that group'
-    const key = courseKey(proposal.course)
+    const key = courseKey(course)
     const mine = key ? user.courseKeys.includes(key) : false
 
-    if (outcome?.approved) {
-      const tail = mine
-        ? `You're taking ${proposal.course}, so everything said there reaches you from now on.`
-        : `You're not registered for ${proposal.course} — send *add ${proposal.course}* if you want its announcements.`
+    const filed = course
+      ? `filing it under *${course}*`
+      : 'filing each post under whatever course it names'
+    const tail = course
+      ? mine
+        ? `You're taking ${course}, so everything said there reaches you from now on.`
+        : `You're not registered for ${course} — send *add ${course}* if you want its announcements.`
+      : `Anything that names none of your courses I'll treat as department-wide.`
 
-      return `Done — I'm listening to *${where}* and filing it under *${proposal.course}* ✅
+    if (outcome?.approved) {
+      return `Done — I'm listening to *${where}* and ${filed} ✅
 
 I only know what's said from now on, not what came before.
 
 ${tail}`
     }
 
-    const tail = mine
-      ? `You're taking ${proposal.course}, so once it's approved you'll get everything from it.`
-      : `You're not registered for ${proposal.course} — send *add ${proposal.course}* if you want its announcements.`
+    const pending = course
+      ? `Noted — *${where}* is for *${course}*.`
+      : `Noted — *${where}* carries the whole department.`
 
-    return `Noted — *${where}* is for *${proposal.course}*.
+    return `${pending}
 
 I'm not reading it yet: somebody who is in it has to switch it on, and you didn't add me to it. I've passed this on.
 
@@ -829,3 +893,20 @@ ${tail}`
 }
 
 export const dmService = new DmService()
+
+/**
+ * The most identifying thing known about a group.
+ *
+ * WhatsApp does not always give a subject on join, and "a group" tells a student
+ * nothing about which of theirs is meant — they cannot answer a question that does not
+ * say what it is about. When there is no name, when they added it is what is left.
+ */
+function describeGroup(group: Group): string {
+  if (group.name) return group.name
+  const added = group.joinedAt
+  if (!added) return 'a group'
+  const sameDay = new Date().toDateString() === added.toDateString()
+  return sameDay
+    ? 'a group you added today'
+    : `a group you added on ${added.toLocaleDateString('en-NG', { weekday: 'long', day: 'numeric', month: 'long' })}`
+}

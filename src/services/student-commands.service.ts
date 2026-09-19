@@ -1,7 +1,16 @@
 import { config } from '../config.js'
 import { logger } from '../core/logger.js'
 import type { User } from '../models/index.js'
-import { groupRepository, userRepository } from '../repositories/index.js'
+import {
+  assignmentStateRepository,
+  attemptRepository,
+  groupRepository,
+  notificationRepository,
+  outboxRepository,
+  renderJobRepository,
+  scheduleRepository,
+  userRepository,
+} from '../repositories/index.js'
 import { courseDisplay, parseCourseList } from '../utils/courses.js'
 import { formatTime12 } from '../utils/dates.js'
 import { describeResume, parsePause } from '../utils/duration.js'
@@ -200,7 +209,7 @@ export class StudentCommandsService {
    */
   async resolvePending(user: User, text: string): Promise<string | null> {
     const pending = (await conversationService.get(user.phone))?.pendingAction
-    // awaiting_resource_course is DmService's to answer — it ends in files being
+    // A group-course answer is DmService's to handle — it ends in files being
     // sent, which commands cannot do. Clearing it here would strand the student.
     if (pending !== 'confirm_wipe' && pending !== 'awaiting_name') return null
 
@@ -239,18 +248,45 @@ Send *yes* to go ahead, or anything else to leave it.
 If you only want me to be quiet for a while, send *pause* instead.`
   }
 
+  /**
+   * Everything keyed to this student, gone — settings included.
+   *
+   * What stays is what belongs to the group: `messages`, `extractions`, `resources`
+   * and the `assignments` themselves are append-only and shared, and a citation
+   * already sent to somebody else has to keep resolving.
+   *
+   * The queued `outbox` rows matter most. A wipe says Peermate will stop messaging
+   * them, and a row left behind is a message the next sweep sends regardless — the
+   * one promise this makes, broken.
+   */
   private async wipe(user: User): Promise<string> {
     await userRepository.upsert({
       ...user,
       displayName: null,
       courseKeys: [],
       mutedCourseKeys: [],
+      groupJids: [],
       paused: false,
       pausedUntil: null,
+      digestPaused: false,
+      alertLevel: 'all',
+      digestFormat: 'text',
+      quietFrom: null,
+      quietTo: null,
+      lastDigestAt: null,
       onboardingState: 'awaiting_name',
       registeredAt: null,
     })
-    await conversationService.forget(user.phone)
+
+    await Promise.all([
+      conversationService.forget(user.phone),
+      scheduleRepository.clear(user.phone),
+      attemptRepository.clear(user.phone),
+      assignmentStateRepository.clear(user.phone),
+      notificationRepository.clear(user.phone),
+      outboxRepository.clear(user.phone),
+      renderJobRepository.clear(user.phone),
+    ])
     logger.info({ phone: user.phone }, 'student removed themselves')
     return `Done. I've cleared your courses and I won't message you again.
 

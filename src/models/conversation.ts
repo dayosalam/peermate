@@ -124,12 +124,10 @@ export const ConversationSchema = z.object({
     .enum([
       'confirm_wipe',
       'awaiting_name',
-      'awaiting_resource_course',
       'confirm_group_course',
+      'awaiting_group_course',
       'confirm_timetable',
-      'confirm_send_files',
       'answering_quiz',
-      'confirm_web_search',
       'choose_web_file',
       'confirm_tool',
     ])
@@ -143,7 +141,12 @@ export const ConversationSchema = z.object({
    * change which course a group gets filed under.
    */
   proposal: z
-    .object({ chatJid: z.string(), groupName: z.string().nullable(), course: z.string() })
+    .object({
+      chatJid: z.string(),
+      groupName: z.string().nullable(),
+      /** Null while Peermate has asked which course it is and is waiting to be told. */
+      course: z.string().nullable(),
+    })
     .nullable()
     .default(null),
   /**

@@ -30,6 +30,11 @@ export class NotificationRepository extends BaseRepository<Notification> {
     } as never)
     return existing !== null
   }
+
+  /** Their delivery record. Kept for months to answer "did she get it?" — until they leave. */
+  async clear(userPhone: string): Promise<void> {
+    await this.collection.deleteMany({ userPhone } as never)
+  }
 }
 
 export const notificationRepository = new NotificationRepository()

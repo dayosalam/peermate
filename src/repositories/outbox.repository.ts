@@ -47,6 +47,16 @@ export class OutboxRepository extends BaseRepository<OutboxEntry> {
       .limit(limit)
       .toArray() as Promise<OutboxEntry[]>
   }
+
+  /**
+   * Anything still owed to this student, dropped.
+   *
+   * A wipe promises Peermate will stop messaging them, and a queued row is a message
+   * the next sweep would send regardless.
+   */
+  async clear(phone: string): Promise<void> {
+    await this.collection.deleteMany({ phone } as never)
+  }
 }
 
 export const outboxRepository = new OutboxRepository()

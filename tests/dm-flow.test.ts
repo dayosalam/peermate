@@ -137,6 +137,7 @@ vi.mock('../src/services/group.service.js', () => ({
       return { group: null, approved: false }
     }),
     claimableBy: vi.fn(async () => []),
+    claim: vi.fn(async () => false),
   },
 }))
 
@@ -485,14 +486,52 @@ describe('saying which course a group is for', () => {
     expect(proposed).toEqual([{ chatJid: '120363430457309406@g.us', course: 'CVE 577' }])
   })
 
-  it('asks again on a no, and relays nothing', async () => {
+  /**
+   * The follow-up question has to be recorded too. Clearing the pending action here
+   * sent the next message back to the start, so the student was asked a third time
+   * instead of being answered.
+   */
+  it('asks again on a no, and remembers that it asked', async () => {
     pendingGroups = [pendingGroup()]
     await dmService.proposeGroupCourse(user, 'the group is for Cve 575')
 
     await dmService.handle(dm('no'))
     expect(proposed).toHaveLength(0)
     expect(outbox.at(-1)).toMatch(/which course/i)
-    expect(conversation!.pendingAction).toBeNull()
+    expect(conversation!.pendingAction).toBe('awaiting_group_course')
+    expect(conversation!.proposal?.course).toBeNull()
+  })
+
+  it('takes the code sent after that no, instead of asking a third time', async () => {
+    pendingGroups = [pendingGroup()]
+    await dmService.proposeGroupCourse(user, 'the group is for Cve 575')
+    await dmService.handle(dm('no'))
+
+    await dmService.handle(dm('CVE 563'))
+    expect(outbox.at(-1)).not.toMatch(/which course is/i)
+  })
+
+  /** A departmental group carries every course; being asked for one code loops forever. */
+  it('accepts a group that is not for any one course', async () => {
+    pendingGroups = [pendingGroup()]
+    await dmService.proposeGroupCourse(user, 'the group is for Cve 575')
+    await dmService.handle(dm('no'))
+
+    await dmService.handle(dm('the group is a general group not for a particular course'))
+    expect(proposed.at(-1)?.course).toBeNull()
+  })
+
+  /**
+   * The question rides alongside the answer. Returning here discarded what the student
+   * said, so every message got the group question and nothing else — including
+   * "wipe everything about me".
+   */
+  it('still answers the message it asked the group question on', async () => {
+    pendingGroups = [pendingGroup({ addedBy: JID })]
+    await dmService.handle(dm('wipe everything about me'))
+
+    expect(outbox.some((line) => /you added me to/i.test(line))).toBe(true)
+    expect(agentCalls).toContain('wipe everything about me')
   })
 
   it('says which group it picked when several are waiting', async () => {

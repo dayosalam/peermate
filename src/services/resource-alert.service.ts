@@ -3,6 +3,8 @@ import { logger } from '../core/logger.js'
 import type { Resource, User } from '../models/index.js'
 import { notificationRepository, userRepository } from '../repositories/index.js'
 import { courseDisplay } from '../utils/courses.js'
+import type { DocType } from '../models/index.js'
+import { PDF_MIME } from './document-reader.service.js'
 import { deliveryService } from './delivery.service.js'
 
 interface Batch {
@@ -131,7 +133,7 @@ export class ResourceAlertService {
 
 ${list}${by}
 
-Say *${course} resources* and I'll send them.`
+Say *${course} resources* and I'll send them.${offer(batch)}`
   }
 
   /** Flushes everything immediately. Used on shutdown so nothing pending is lost. */
@@ -143,4 +145,24 @@ Say *${course} resources* and I'll send them.`
   }
 }
 
+/** Typed, so a docType that does not exist is a compile error and not a silent no-match. */
+const WORTH_EXPLAINING = new Set<DocType>(['slides', 'textbook', 'past_questions'])
+
 export const resourceAlertService = new ResourceAlertService()
+
+/**
+ * Offers a walkthrough, when there is something to walk through.
+ *
+ * Only for pages that can actually be rendered and read from — a photographed notice
+ * makes no explainer. Without the offer nobody discovers the feature: students do not
+ * ask a WhatsApp bot for a video unprompted.
+ */
+function offer(batch: Batch): string {
+  if (!config.render.enabled) return ''
+  const readable = batch.resources.filter(
+    (resource) => resource.mimeType === PDF_MIME && WORTH_EXPLAINING.has(resource.docType),
+  )
+  return readable.length > 0
+    ? "\n\nOr ask me to explain any of it and I'll make you a short video."
+    : ''
+}

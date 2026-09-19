@@ -216,6 +216,7 @@ async function main(): Promise<void> {
   await userRepository.upsert({
     phone: STUDENT_PHONE,
     jid: STUDENT_JID,
+    lid: null,
     name: 'Amina',
     displayName: 'Amina',
     courseKeys: ['CSC301', 'STA202'],

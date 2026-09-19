@@ -126,6 +126,7 @@ export class OnboardingService {
     const fresh: User = {
       phone,
       jid: message.chatJid,
+      lid: null,
       name: message.senderName,
       displayName: null,
       courseKeys: [],

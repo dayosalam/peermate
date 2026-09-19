@@ -181,7 +181,14 @@ export class ConversationService {
 
   /** Holds a group-and-course pairing until the student confirms it is right. */
   async proposeGroup(phone: string, proposal: Conversation['proposal']): Promise<void> {
-    await this.merge(phone, { proposal, pendingAction: proposal ? 'confirm_group_course' : null })
+    // A question with no recorded pending action is asked again on the next message
+    // and never answered — the loop this exists to prevent.
+    const pendingAction = proposal
+      ? proposal.course
+        ? ('confirm_group_course' as const)
+        : ('awaiting_group_course' as const)
+      : null
+    await this.merge(phone, { proposal, pendingAction })
   }
 
   /**

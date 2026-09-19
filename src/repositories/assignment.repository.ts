@@ -86,6 +86,16 @@ export class AssignmentStateRepository extends BaseRepository<AssignmentState> {
       { upsert: true },
     )
   }
+
+  /**
+   * One student's statuses, dropped.
+   *
+   * Only the states: `assignments` is the work itself and belongs to the group, so
+   * one person leaving must not take the deadline with them.
+   */
+  async clear(phone: string): Promise<void> {
+    await this.collection.deleteMany({ phone } as never)
+  }
 }
 
 export const assignmentRepository = new AssignmentRepository()

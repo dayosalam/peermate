@@ -151,24 +151,141 @@ almost all of it TTS. Static slides encode nearly for free, so the WhatsApp size
 is rarely the constraint; **render time** is, which is why this can never be a
 synchronous tool call — the agent's budget is 45 seconds.
 
-Visuals are the lecturer's **real slide pages**, cropped to the ink on them. There is no
-generated-image path, and that is a decision rather than an omission: a model asked to
-draw a shear force diagram puts the arrows the wrong way round, and a student revising
-from it cannot tell.
+Visuals are the lecturer's **real slide pages**, cropped to the ink on them — which is
+all `render/` can do today. Generated imagery has since been allowed, but only where it
+cannot carry content; the reasoning and the boundary are in the design record above, and
+neither is implemented here yet.
+
+## The explainer video on Livepeer — decided 15 September 2026, not yet built
+
+Decided in discussion with the user, recorded here because none of it is recoverable
+from the code: the code does not yet exist, and the first decision below makes the rest
+look irrational without it.
+
+**Livepeer is the deliverable, not the implementation.** Livepeer and Daydream host the
+hackathon this is entered in. On the numbers it is the worse buy — `chatterbox-tts` is
+$0.0262 per 1000 characters against OpenAI's roughly $0.015 a minute, about 1.7× for the
+same words — so nobody should "fix" this back to OpenAI on cost. It also means a silent
+fallback to OpenAI defeats the point: if the network refuses, that is a failure to
+report, not a provider to swap.
+
+**The flow.** Course material → retrieval and a grounded script in `src/` as today →
+storyboard → narration, captions, visuals, assembly, transcode and hosting on Livepeer →
+the video in the student's DM.
+
+**Nearly everything moves onto the network, because the useful half is free.**
+`ffmpeg-concat`, `-mux`, `-burn-subtitles`, `-kenburns`, `-export`, `cdn-vercel-upload`,
+`obscura-extract-text` and `hyperframes-caption` are all $0.00 per call. That buys a
+genuine claim that the pipeline runs on Livepeer without spending the demo balance on
+it, and `ffmpeg-burn-subtitles` happens to solve this machine having no libass. What
+stays local is rasterising a PDF page, which is pdf.js and a native canvas — the exact
+dependencies that must not be in the image the socket runs in. The subprocess wall
+therefore stays.
+
+**Generated visuals are allowed, but never load-bearing.** This reverses the earlier
+"there is no generated-image path" and keeps its reasoning: a model asked to draw a
+shear force diagram puts the arrows the wrong way round, and a student revising from it
+cannot tell. So generated imagery may carry a title card, a section opener or motion
+over a real page, and anything a student could revise from — a diagram, a formula, a
+labelled figure — is a real page from their own material.
+
+The model chooses which, with the rule in its prompt. That is the user's call, made
+knowingly, and it is worth knowing why the alternative was argued for: a prompt
+instruction is a request, which is why the agent's execution limits live in code, and
+the model will reach for a generated visual precisely when retrieval came back thin —
+the moment the real page matters most. The cheap hedge that was taken instead: the
+storyboard schema records the choice as a tagged union rather than leaving it implicit
+in which field got filled, so a test can assert what the model actually did across a
+corpus. If it over-reaches, a validator becomes an addition rather than a refactor.
+
+**The MP4 is the product; the hosted link is the fallback.** A measured explainer is
+0.7MB and plays inline in WhatsApp, which is the better experience on a Nigerian data
+plan and, more importantly, never becomes a URL. `cdn-vercel-upload` returns a *public*
+address, and a lecturer's material on a public CDN is the same leak the tenancy boundary
+exists to prevent, arriving through the front door. Hosting is for renders too large to
+send, and it stays in the flow because it is real and demonstrable — not because it is
+the default path a student's material takes.
+
+**The renderer is a separate process and delivers through the outbox.** A three-minute
+render must not share a process with the WhatsApp socket, and a second process must
+never hold the credentials — one `auth_state` used twice desynchronises irrecoverably.
+So the worker claims a `render_jobs` row, renders, and writes the result to `outbox`;
+the bot, which is still the only thing holding a socket, sends it. The one-socket
+invariant is untouched and durability comes free from a mechanism that already exists.
+
+**An explainer is answer-shaped:** two to five scenes, under ninety seconds, using only
+the pages that bear on what was asked. A student wanting the next part asks again.
+
+**A student asks, and Peermate also offers** when a lecturer posts substantial new
+material. The offer costs nothing until it is accepted, and without it nobody discovers
+the feature — nobody asks a WhatsApp bot for a video unprompted.
+
+**One message, rewritten in place.** A render takes minutes, so the student gets a
+progress message updated roughly every fifteen seconds with a real percentage and the
+time elapsed, and that same message becomes the video. Not a progress log: Baileys
+supports `edit` against a message key, and an edit does not re-notify, so the phone does
+not buzz twelve times. Three things this constrains:
+
+- **WhatsApp only allows editing your own message for about fifteen minutes.** Past
+  that, edits fail silently and progress must continue in a fresh message.
+- **The percentage comes from stages actually completed**, never from a timer imitating
+  progress. A number a student trusts that was invented is the same failure as a
+  fabricated citation.
+- **A failed render lands in that same message**, as the text explanation and voice note
+  that already work today. Every other stage in this pipeline fails soft; this one is
+  not the exception that leaves someone staring at 60%.
+
+It is sent whenever it is ready, quiet hours included — the student asked for it, and
+watched it being built.
+
+**No spend caps, for now.** The user's call, with no rate limiting anywhere in the
+project yet. Every response carries `budget_headroom_usd`, so log it as it falls rather
+than discovering zero mid-demo. Caching a render on (group, course, question shape) is
+the real long-term answer and is not built.
+
+**The keyless demo balance is a shared pool, and it moves on its own.** Measured on 15
+September 2026: it read $51.94, then $39.70 forty minutes later, while this project had
+spent three-quarters of a cent. Within a single run the deltas matched our own spend to
+the tenth of a cent, so the $12 went to other callers. Nothing here can budget against
+that, and a demo that depends on it can die on stage because a stranger rendered a
+video. Get an account key — the `signup` tool emails a code, `signup_confirm` redeems
+it — and send it as `Authorization: Bearer`, which `render/src/livepeer.ts` already does
+whenever `LIVEPEER_API_KEY` is set.
 
 ## Open threads
 
-**The Livepeer key is blocked.** `sk_` keys are retired network-wide. From the live API:
+**The Livepeer key is unblocked — and no key is needed.** `sk_` keys are retired
+network-wide, and the docs page that still tells you to get one is a bug at the source
+which the user is fixing. The way in is the agent MCP, keyless:
 
-> *"Daydream `sk_` API keys are retired and can no longer pay for inference on this
-> network. Use a pymthouse composite key instead — `Authorization: Bearer
-> app_<appId>_pmth_<token>`."*
+```
+https://agent.livepeer.org/api/mcp     # streamable http, no auth
+```
 
-The docs page still says to get an `sk_` key; it is stale, and the API is authoritative.
-`render/src/livepeer.ts` is written against the real endpoint
-(`POST https://sdk.daydream.monster/inference`, body `{capability, input}`) and
-`narrate.ts` prints which provider ran, falling back to OpenAI. The moment a valid key
-lands in `render/.env`, that line reads `livepeer`. Ask in the Daydream Discord.
+Verified against the live server, not a doc. An unauthenticated `initialize` answers
+`serverInfo.name = "livepeer-agent-raw (demo credits — no key)"`, and `me` reports that
+every model and every tool is available keyless — what is limited is *spend*, drawn
+from a demo balance at each model's real price. A `chatterbox-tts` run cost $0.0019
+against $51.94 of headroom and returned real audio: 4.2s, 24kHz mono, 214KB, probed
+after downloading it. Glama's page for this server documents OAuth and dynamic client
+registration; it is as stale as the `sk_` page. Configured in [.mcp.json](.mcp.json),
+which Claude Code reads at startup.
+
+**This does not by itself feed `render/`.** An MCP connector is the *agent's*
+credential, and the render runner is deliberately a subprocess — that wall is what
+keeps a 16-second render outside a 45-second tool budget. What does carry over is that
+the endpoint is ordinary HTTP: a JSON-RPC `tools/call` of `run_capability`
+(`{capability, prompt, async:false}`) posted to `/api/mcp` needs no MCP client library
+and no `Authorization` header. So the remaining change in `render/src/livepeer.ts` is
+that shape in place of `Bearer` to `sdk.daydream.monster/inference`, and a `provider()`
+in `narrate.ts` that no longer gates on `hasLivepeerKey()`, because there is no longer
+a key to test.
+
+Two things that will cost an hour if you write it: the audio URL is a **302 to
+`fal.media`** — `fetch()` follows it, `curl` does not without `-L`, so a hand-check
+looks like an empty file — and the capability returns **WAV, not MP3**. Whether demo
+credits should carry a student-facing feature is a decision rather than a detail: $52
+of headroom is a demonstration, not a supply.
 
 **The render runner does not exist.** It is the one piece joining the explainer to
 `render/`: take a `render_jobs` row, fetch its PDFs from MinIO, write a storyboard,
@@ -200,3 +317,16 @@ limiting or abuse controls; no cost tracking; no backup-restore drill.
   confidence 1.0.
 - **Verify by looking, not by reading the numbers.** A rendered video reported the right
   duration, size and codec while every slide in it was blank. Extract a frame.
+- **Livepeer's tool capabilities take undocumented parameters, and drop the ones they do
+  not recognise without a word.** `describe_capability` returns `example_inputs:
+  {prompt: "<your prompt>"}` for every ffmpeg tool, which is boilerplate, and
+  `openapi.json` on the SDK host has no per-tool schema at all. `ffmpeg-kenburns` wants
+  `duration_sec`; `duration` and `seconds` are both accepted, ignored, and answered with
+  the 5-second default. The first spike therefore produced a clean 720p h264 video whose
+  narration had been cut from 19.9 seconds to 5 — success at every step, three quarters
+  of the sentence gone. Probe a parameter by sending it and measuring the output before
+  believing it landed.
+- **`ffmpeg-burn-subtitles` succeeded on 40% of its last 20 attempts** and the network
+  labels it degraded; `ffmpeg-concat` is at 87% of 30. Captions are drawn on the canvas
+  locally instead, which was already true for a different reason. Check
+  `describe_capability` for a live success rate before putting a tool on the path.

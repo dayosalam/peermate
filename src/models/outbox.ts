@@ -34,6 +34,23 @@ export const OutboxSchema = z.object({
    * sweep both send it. Past this time the wait has failed and the sweep takes over.
    */
   notBefore: z.date(),
+  /**
+   * A rendered video to send, with `body` as its caption.
+   *
+   * A MinIO key rather than a path: the renderer is a different process from the one
+   * holding the socket, and a path one wrote means nothing to the other.
+   */
+  video: z
+    .object({
+      mediaKey: z.string(),
+      playbackUrl: z.string().nullable(),
+      bytes: z.number(),
+      durationSec: z.number(),
+    })
+    .nullable()
+    .default(null),
+  /** Asked for, so it skips the delivery rules. It rides the outbox for durability, not permission. */
+  solicited: z.boolean().default(false),
   /** Nothing is retried for ever; after this it is an operator's problem, not a loop. */
   createdAt: z.date(),
   updatedAt: z.date(),

@@ -226,8 +226,8 @@ export async function connectWhatsApp(): Promise<WASocket> {
     const participantJids = [
       ...new Set(
         update.participants.flatMap((participant) =>
-          [participant.id, participant.phoneNumber, participant.lid].filter(
-            (jid): jid is string => Boolean(jid),
+          [participant.id, participant.phoneNumber, participant.lid].filter((jid): jid is string =>
+            Boolean(jid),
           ),
         ),
       ),

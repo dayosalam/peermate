@@ -182,9 +182,33 @@ export class GroupService {
    * student who names someone else's group cannot switch it on by saying they added
    * it — the same reason every tool resolves its student from the session.
    */
+  /**
+   * Records a student as the one who added Peermate, when nobody is on record.
+   *
+   * Their word, not proof — used only where proof is impossible: WhatsApp gave no
+   * comparable identity, or Peermate was added while it was offline. The safeguard is
+   * upstream, in what it took to get here: they named the group closely enough to be
+   * recognised, and Peermate named it back before they confirmed.
+   *
+   * Never overwrites an existing adder. A group with somebody on record is already
+   * answerable, and letting a claim replace them is how one student takes another's
+   * group.
+   */
+  async claim(chatJid: string, byIdentity: string, byName: string): Promise<boolean> {
+    const group = await groupRepository.findByJid(chatJid)
+    if (!group || group.addedBy) return false
+
+    await groupRepository.upsert({ ...group, addedBy: byIdentity, addedByName: byName })
+    logger.warn(
+      { chatJid, byIdentity },
+      'group claimed without proof — membership could not be verified',
+    )
+    return true
+  }
+
   async propose(
     chatJid: string,
-    course: string,
+    course: string | null,
     by: string,
     byIdentity?: string | null,
   ): Promise<{ group: Group; approved: boolean } | null> {

@@ -1,3 +1,4 @@
+import type { WAMessageKey } from '@whiskeysockets/baileys'
 import { GroupSendForbidden } from '../core/errors.js'
 import { logger } from '../core/logger.js'
 import { getMedia } from '../db/minio.js'
@@ -123,6 +124,41 @@ export class NotifierService {
     }
 
     throw last
+  }
+
+  /** Inline, so it plays in the chat. The caller checks the size; over the ceiling, a link is the only option. */
+  async sendVideo(jid: string, video: Buffer, caption?: string): Promise<void> {
+    this.assertNotGroup(jid)
+    await this.withRetry(
+      () => getSocket().sendMessage(jid, { video, caption, mimetype: 'video/mp4' }),
+      jid,
+    )
+    logger.info({ jid, bytes: video.byteLength }, 'video sent')
+  }
+
+  /** `sendText` returns an id; an edit needs the whole key. Separate because almost nothing should be editable. */
+  async sendEditable(jid: string, text: string): Promise<WAMessageKey | null> {
+    this.assertNotGroup(jid)
+    const sent = await this.withRetry(() => getSocket().sendMessage(jid, { text }), jid)
+    return sent?.key ?? null
+  }
+
+  /**
+   * Rewrites a message in place; false when WhatsApp refuses.
+   *
+   * It refuses about fifteen minutes after the original, and refuses quietly — so a
+   * caller that assumes success writes into a void. An edit does not re-notify, which
+   * is the point: twelve updates to one message leave the phone silent.
+   */
+  async edit(jid: string, key: WAMessageKey, text: string): Promise<boolean> {
+    this.assertNotGroup(jid)
+    try {
+      await getSocket().sendMessage(jid, { text, edit: key })
+      return true
+    } catch (error) {
+      logger.warn({ err: error, jid }, 'could not edit — the window has probably closed')
+      return false
+    }
   }
 
   /** Inline, not as a file to download — an image sent as a document is unreadable. */

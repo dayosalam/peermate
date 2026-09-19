@@ -10,6 +10,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "build": "tsc -p tsconfig.json",
+    "render": "npm --prefix render run render --",
     "typecheck": "tsc -p tsconfig.test.json",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -27,7 +28,9 @@
     "dev:local": "DOTENV_CONFIG_PATH=.env.local tsx watch src/index.ts",
     "test:local": "DOTENV_CONFIG_PATH=.env.local tsx src/scripts/smoke.ts",
     "eval:local": "DOTENV_CONFIG_PATH=.env.local tsx src/scripts/eval.ts",
-    "reset:local": "DOTENV_CONFIG_PATH=.env.local tsx src/scripts/reset.ts"
+    "reset:local": "DOTENV_CONFIG_PATH=.env.local tsx src/scripts/reset.ts",
+    "worker": "tsx src/render-main.ts",
+    "worker:local": "DOTENV_CONFIG_PATH=.env.local tsx src/render-main.ts"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "7.0.0-rc14",

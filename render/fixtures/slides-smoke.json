@@ -1,0 +1,26 @@
+{
+  "title": "Shear force, from the ground up",
+  "course": "CVE 575",
+  "scenes": [
+    {
+      "narration": "Let us go through shear force. What it is, how you read it off a beam, and the one check to do before you draw anything.",
+      "visual": { "kind": "title", "text": "Shear force, from the ground up" },
+      "source": null
+    },
+    {
+      "narration": "Shear force at any section is the sum of the vertical forces to the left of that section. An upward force to the left counts as positive.",
+      "visual": { "kind": "slide", "pdfPath": ".local/fixtures/CVE575_wk4.pdf", "page": 1 },
+      "source": "CVE575_wk4.pdf, p.1"
+    },
+    {
+      "narration": "Before any of that, check the reactions balance. Sum of vertical forces zero, sum of moments zero. On a six metre span with twelve kilonewtons at midspan, each reaction is six.",
+      "visual": { "kind": "slide", "pdfPath": ".local/fixtures/CVE575_wk4.pdf", "page": 1 },
+      "source": "CVE575_wk4.pdf, p.1"
+    },
+    {
+      "narration": "The one thing to keep: the reactions must balance before you draw anything at all.",
+      "visual": { "kind": "generated", "prompt": "A clean dark green chalkboard, empty, soft even lighting, no text, no writing" },
+      "source": null
+    }
+  ]
+}

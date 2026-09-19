@@ -4,6 +4,8 @@ import type { User } from '../src/models/index.js'
 const saved: User[] = []
 let pendingAction: 'confirm_wipe' | 'awaiting_name' | null = null
 
+const cleared: string[] = []
+
 vi.mock('../src/repositories/index.js', () => ({
   userRepository: {
     upsert: vi.fn(async (user: User) => {
@@ -12,6 +14,18 @@ vi.mock('../src/repositories/index.js', () => ({
     findByPhone: vi.fn(async () => saved.at(-1) ?? null),
   },
   groupRepository: { approved: vi.fn(async () => []), forStudent: vi.fn(async () => []) },
+  scheduleRepository: { clear: vi.fn(async (phone: string) => cleared.push(`schedules:${phone}`)) },
+  attemptRepository: { clear: vi.fn(async (phone: string) => cleared.push(`attempts:${phone}`)) },
+  assignmentStateRepository: {
+    clear: vi.fn(async (phone: string) => cleared.push(`assignment_states:${phone}`)),
+  },
+  notificationRepository: {
+    clear: vi.fn(async (phone: string) => cleared.push(`notifications:${phone}`)),
+  },
+  outboxRepository: { clear: vi.fn(async (phone: string) => cleared.push(`outbox:${phone}`)) },
+  renderJobRepository: {
+    clear: vi.fn(async (phone: string) => cleared.push(`render_jobs:${phone}`)),
+  },
 }))
 
 vi.mock('../src/services/conversation.service.js', () => ({
@@ -130,6 +144,44 @@ describe('destructive commands', () => {
     await command(student(), 'yes')
     expect(last().courseKeys).toEqual([])
     expect(last().onboardingState).toBe('awaiting_name')
+  })
+
+  /**
+   * Starting afresh has to mean afresh. Their timetable, quiz history and settings all
+   * survived a wipe, so re-registering met a Peermate that still knew their classes.
+   */
+  it('leaves nothing of theirs in any collection', async () => {
+    cleared.length = 0
+    await command(student(), 'delete my data')
+    await command(student(), 'yes')
+
+    expect(cleared.sort()).toEqual(
+      [
+        'assignment_states:2348100000000',
+        'attempts:2348100000000',
+        'notifications:2348100000000',
+        'outbox:2348100000000',
+        'render_jobs:2348100000000',
+        'schedules:2348100000000',
+      ].sort(),
+    )
+  })
+
+  /** A wipe promises Peermate stops messaging them; a queued row would do it anyway. */
+  it('drops what was already queued to send them', async () => {
+    cleared.length = 0
+    await command(student(), 'delete my data')
+    await command(student(), 'yes')
+    expect(cleared).toContain('outbox:2348100000000')
+  })
+
+  /** The tenancy boundary travels with the number, so it cannot outlive the account. */
+  it('clears the groups their retrieval was scoped to', async () => {
+    await command(student(), 'delete my data')
+    await command(student(), 'yes')
+    expect(last().groupJids).toEqual([])
+    expect(last().quietFrom).toBeNull()
+    expect(last().alertLevel).toBe('all')
   })
 
   it('leaves everything alone on anything else', async () => {

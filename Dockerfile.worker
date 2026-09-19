@@ -1,0 +1,29 @@
+FROM node:22-slim AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY tsconfig.json ./
+COPY src ./src
+RUN npm run build
+
+FROM node:22-slim
+WORKDIR /app
+ENV NODE_ENV=production
+
+# The render toolchain the bot image deliberately does without. This process holds no
+# socket, so it can carry what it needs to rasterise a PDF and encode a video.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg fontconfig fonts-dejavu-core \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY package*.json ./
+RUN npm ci --omit=dev
+COPY --from=build /app/dist ./dist
+
+# render/ keeps its own dependencies and its dev toolchain: the worker starts it as a
+# subprocess, which is what keeps a 16-second render outside the agent's budget.
+COPY render/package*.json ./render/
+RUN cd render && npm ci
+COPY render ./render
+
+CMD ["node", "dist/render-main.js"]

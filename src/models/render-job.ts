@@ -1,17 +1,31 @@
 import { z } from 'zod'
 
 /**
- * A scene as it is stored, before anything has been fetched.
+ * What the student looks at while a beat is spoken.
  *
- * `mediaKey` rather than a path: MinIO is the only place the file lives, and a
- * temporary path written into a queued job is meaningless by the time the job runs.
- * Whoever renders it materialises the files first.
+ * A union rather than nullable fields, for the reason the extraction `kind` is one: a
+ * shape that lets both be half-filled cannot say which was chosen, and a test has to
+ * be able to assert that `generated` never landed on a beat carrying a formula.
+ *
+ * `mediaKey` rather than a path — a temporary path written into a queued job is
+ * meaningless by the time the job runs.
  */
+export const JobVisualSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('slide'),
+    mediaKey: z.string(),
+    fileName: z.string(),
+    page: z.number().int().positive().nullable(),
+  }),
+  z.object({ kind: z.literal('title'), text: z.string() }),
+  /** Allowed only where it cannot be wrong about the subject: openers, breaks, closers. */
+  z.object({ kind: z.literal('generated'), prompt: z.string().min(1) }),
+])
+export type JobVisual = z.infer<typeof JobVisualSchema>
+
 export const JobSceneSchema = z.object({
   narration: z.string(),
-  mediaKey: z.string().nullable(),
-  fileName: z.string().nullable(),
-  page: z.number().int().positive().nullable(),
+  visual: JobVisualSchema,
   /** The line burned into the frame, so a screenshot still says where it came from. */
   source: z.string().nullable(),
 })
@@ -37,6 +51,25 @@ export const RenderJobSchema = z.object({
   status: z.enum(['pending', 'rendering', 'done', 'failed']).default('pending'),
   attempts: z.number().default(0),
   lastError: z.string().nullable().default(null),
+  /** From stages that actually finished, never a timer imitating one — a student decides whether to keep waiting on it. */
+  progress: z.number().min(0).max(1).default(0),
+  stage: z.string().nullable().default(null),
+  startedAt: z.date().nullable().default(null),
+  /**
+   * The one message being rewritten in place.
+   *
+   * WhatsApp stops accepting edits about fifteen minutes in, and says nothing, so
+   * `sentAt` is what tells the runner to start a fresh message.
+   */
+  progressMessage: z
+    .object({
+      id: z.string(),
+      remoteJid: z.string(),
+      fromMe: z.boolean(),
+      sentAt: z.date(),
+    })
+    .nullable()
+    .default(null),
   /** Where the finished file landed, or the playback link if it was too big to send. */
   videoPath: z.string().nullable().default(null),
   playbackUrl: z.string().nullable().default(null),

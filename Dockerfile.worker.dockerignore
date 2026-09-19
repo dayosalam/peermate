@@ -1,0 +1,14 @@
+# The worker needs render/, unlike the bot image — but never the session credential.
+auth_state
+
+.env
+.env.*
+!.env.example
+
+node_modules
+render/node_modules
+dist
+render/out
+
+.git
+.gitignore

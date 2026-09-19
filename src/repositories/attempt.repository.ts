@@ -30,6 +30,11 @@ export class AttemptRepository extends BaseRepository<Attempt> {
       .limit(limit)
       .toArray() as Promise<Attempt[]>
   }
+
+  /** Everything this student ever answered. Removed when they ask to be forgotten. */
+  async clear(phone: string): Promise<void> {
+    await this.collection.deleteMany({ phone } as never)
+  }
 }
 
 export const attemptRepository = new AttemptRepository()

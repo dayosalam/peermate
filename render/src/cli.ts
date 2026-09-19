@@ -18,11 +18,20 @@ if (!input) {
 console.log(`narration: ${provider()}`)
 
 const started = Date.now()
-const result = await render(JSON.parse(await readFile(input, 'utf8')), output)
+
+/**
+ * One JSON line per finished stage — the only way progress leaves this process.
+ * Line-delimited so a reader acts on each as it arrives, which means the caller must
+ * stream stdout rather than buffer it to exit.
+ */
+const result = await render(JSON.parse(await readFile(input, 'utf8')), output, (progress) => {
+  console.log(JSON.stringify({ progress }))
+})
 
 console.log(
   `${result.path}  ${(result.bytes / 1e6).toFixed(1)}MB  ${result.durationSec}s  (rendered in ${Math.round((Date.now() - started) / 1000)}s)`,
 )
+console.log(`hosted: ${result.playbackUrl}`)
 console.log(
   result.fitsInChat
     ? 'Fits in a WhatsApp chat — send the file.'

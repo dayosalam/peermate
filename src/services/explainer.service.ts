@@ -44,6 +44,21 @@ const ExplainerSchema = z.object({
 })
 
 export type Explainer = z.infer<typeof ExplainerSchema>
+
+/**
+ * How long the explanation should run.
+ *
+ * A voice note is listened to once, on the way in, and can afford to cover a topic.
+ * A video is answered-shaped: it takes minutes to build and a student who asked one
+ * question will not watch five minutes of what they did not ask about.
+ */
+export type Shape = 'spoken' | 'video'
+
+const LENGTH: Record<Shape, string> = {
+  spoken: 'Eight to fourteen scenes. Aim for three to five minutes spoken.',
+  video:
+    'Two to five scenes, ninety seconds spoken at most. Answer what was asked and stop; leave the rest for when they ask again.',
+}
 export type Scene = z.infer<typeof SceneSchema>
 
 const SYSTEM = `You explain one topic to a Nigerian university student, out loud, using ONLY the course material provided.
@@ -57,7 +72,7 @@ This is written to be heard, not read:
 Rules:
 - Every claim must come from the provided material. Never add an example, a formula or a definition that is not in it.
 - Each scene is two to four sentences and one idea. Set fileName and page to the file and page of the excerpt it came from, spelled exactly as the header gives them. Leave both null when the beat draws on several, and for an opening or closing scene that states no fact.
-- Eight to fourteen scenes. Aim for three to five minutes spoken.
+- LENGTH
 - Open by saying what will be covered. Close with the one thing worth remembering.
 - If the material does not cover part of what was asked, put it in notCovered and say nothing about it. Returning a shorter explanation is correct; inventing the rest is not.`
 
@@ -70,7 +85,12 @@ Rules:
  * or screenshotted, and a test formula they cannot scroll back to is worse than none.
  */
 export class ExplainerService {
-  async explain(user: User, courseKey: string, topic: string | null): Promise<Explainer | null> {
+  async explain(
+    user: User,
+    courseKey: string,
+    topic: string | null,
+    shape: Shape = 'spoken',
+  ): Promise<Explainer | null> {
     // A named topic is searched for; "explain this course" takes the material as it
     // stands. Searching on an empty topic returns whatever the embedding of nothing
     // happens to be near, which is not the same as everything.
@@ -81,7 +101,7 @@ export class ExplainerService {
     const readable = found.filter((chunk) => chunk.readVia !== 'none')
     if (readable.length === 0) return null
 
-    const script = await this.script(readable, courseKey, topic)
+    const script = await this.script(readable, courseKey, topic, shape)
     return script
       ? { ...script, scenes: script.scenes.map((scene) => cite(scene, readable)) }
       : null
@@ -91,6 +111,7 @@ export class ExplainerService {
     material: Candidate[],
     courseKey: string,
     topic: string | null,
+    shape: Shape,
   ): Promise<Explainer | null> {
     const course = courseDisplay(courseKey) ?? courseKey
 
@@ -98,7 +119,7 @@ export class ExplainerService {
       const completion = await getOpenAI().beta.chat.completions.parse({
         model: config.openai.answerModel,
         messages: [
-          { role: 'system', content: SYSTEM },
+          { role: 'system', content: SYSTEM.replace('- LENGTH', `- ${LENGTH[shape]}`) },
           {
             role: 'user',
             content: `Course: ${course}

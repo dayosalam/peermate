@@ -9,6 +9,7 @@ import { groupService } from '../group.service.js'
 import { membershipService } from '../membership.service.js'
 import { announcementService } from '../announcement.service.js'
 import { explainerService } from '../explainer.service.js'
+import { storyboardService } from '../storyboard.service.js'
 import { dmService } from '../dm.service.js'
 import {
   extractionRepository,
@@ -28,6 +29,7 @@ import { conversationService } from '../conversation.service.js'
 import { notifierService } from '../notifier.service.js'
 import { ttsService, EXPLAINER_CHARS } from '../tts.service.js'
 import { courseDisplay, courseKey, parseCourseList } from '../../utils/courses.js'
+import { closestNamed } from '../../utils/similarity.js'
 import { formatStamp } from '../../utils/dates.js'
 import { asEvidence, format } from './evidence.js'
 
@@ -314,6 +316,40 @@ const tools: Tool[] = [
   },
 
   {
+    name: 'render_explainer',
+    description:
+      "Build a narrated video walkthrough of a topic from the lecturer's own slides, and send it when it is ready. Use when a student asks to be *shown* something, asks for a video, or says reading is not working for them. Takes minutes, not seconds — they are told it is coming and kept updated. For a plain spoken explanation, use explain_topic instead.",
+    tier: 'read',
+    parameters: z.object({
+      course: z.string().describe('Course code the topic belongs to.'),
+      topic: z
+        .string()
+        .nullable()
+        .describe('What to explain, in their words. Null for the material as a whole.'),
+    }),
+    async run(args, { user, jid }) {
+      const key = await resolveCourse(args['course'] as string, user)
+      if (!key) return 'That is not one of their courses, and no group covers it.'
+
+      const topic = args['topic'] ? String(args['topic']) : null
+      const explainer = await explainerService.explain(user, key, topic, 'video')
+      if (!explainer || explainer.scenes.length === 0) {
+        return 'There are no readable files for that course, so there is nothing to build from. Say so, and offer to do it if they send the slides.'
+      }
+
+      // The written explanation goes now rather than with the video. A render can
+      // fail, and a student who asked a question should not be left with nothing
+      // while it does.
+      await notifierService.sendText(jid, explainerService.written(explainer, key))
+
+      const { fresh } = await storyboardService.enqueue(user, key, topic, explainer, jid)
+      return fresh
+        ? 'Queued the video and sent the written explanation. Tell them it is being built and they will get progress updates — do not repeat the explanation.'
+        : 'That video is already being built or already exists. Say it is on the way; do not queue it again.'
+    },
+  },
+
+  {
     name: 'set_group_course',
     description:
       "Correct which course a group's messages are filed under. Use when the student says a group is for a different course than Peermate has it down as. Only works for a group they are in.",
@@ -334,6 +370,39 @@ const tools: Tool[] = [
       const display = courseDisplay(key) ?? key
       await groupService.setCourse(group.chatJid, display)
       return `Filed ${group.name ?? 'that group'} under ${display} from now on. Say it can be changed again the same way.`
+    },
+  },
+
+  {
+    name: 'claim_group',
+    description:
+      'Find a group the student says they added Peermate to, when Peermate cannot work out which one it is. Use when they say they added it and Peermate has not asked them about it — they can give the name roughly. Do not use to change a group Peermate is already reading.',
+    tier: 'reversible',
+    parameters: z.object({
+      name: z.string().describe('The group name, as near as they remember it.'),
+    }),
+    async run(args, { user }) {
+      const typed = String(args['name'] ?? '').trim()
+      if (!typed) return 'Ask them what the group is called.'
+
+      const stuck = await membershipService.unplaced(user)
+      if (stuck.length === 0) {
+        return 'There is no group waiting that I could not place. If they just added me, ask them to try again in a moment — I may not have seen it yet.'
+      }
+
+      const match = closestNamed(typed, stuck)
+      if (!match) {
+        return `Nothing waiting matches that name. Do not guess or list what is waiting — ask them to check the exact name in WhatsApp.`
+      }
+
+      // The question is recorded before it is asked, and the course answer doubles as
+      // the confirmation: naming the course only makes sense if the group is theirs.
+      await conversationService.proposeGroup(user.phone, {
+        chatJid: match.chatJid,
+        groupName: match.name,
+        course: null,
+      })
+      return `Found *${match.name}*. Ask them to confirm that is the one and say which course it is for — or *general* if it carries the whole department.`
     },
   },
 
@@ -724,8 +793,15 @@ const tools: Tool[] = [
   },
 ]
 
-export const toolsByName = new Map(tools.map((tool) => [tool.name, tool]))
-export const allTools = tools
+/**
+ * Video is built and tested but deliberately not wired to the agent yet: the tool
+ * promises a render, and nothing renders unless a worker is running. Kept in the list
+ * and filtered out here so turning it on is one env var, not a code change.
+ */
+const available = tools.filter((tool) => config.render.enabled || tool.name !== 'render_explainer')
+
+export const toolsByName = new Map(available.map((tool) => [tool.name, tool]))
+export const allTools = available
 
 /**
  * Runs a tool directly, bypassing the confirmation gate.
@@ -758,8 +834,6 @@ export function describeCall(name: string, args: Record<string, unknown>): strin
       return 'replace your saved timetable'
     case 'amend_timetable':
       return 'change your timetable'
-    case 'wipe_me':
-      return 'delete everything I hold about you'
     default:
       return name.replace(/_/g, ' ')
   }

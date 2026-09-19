@@ -9,6 +9,7 @@ import { startScheduler } from './scheduler/index.js'
 import { deliveryService } from './services/delivery.service.js'
 import { resourceAlertService } from './services/resource-alert.service.js'
 import { groupService } from './services/group.service.js'
+import { PROGRESS_TICK_MS, renderProgressService } from './services/render-progress.service.js'
 import { connectWhatsApp, onGroupJoin, onGroupLeave, onMessage } from './whatsapp/socket.js'
 import { ingestQueue, recoverUnfinished } from './workers/ingest.worker.js'
 import { backfillTenancy } from './scripts/backfill-tenancy.js'
@@ -77,6 +78,17 @@ async function main(): Promise<void> {
 
   startScheduler()
   startServer()
+
+  // The renderer runs in another process and holds no socket, so telling students how
+  // their video is going has to happen here. Only when the video path is switched on —
+  // otherwise this is a query every fifteen seconds for jobs nothing creates.
+  const progress = setInterval(() => {
+    if (!config.render.enabled) return
+    void renderProgressService
+      .tick()
+      .catch((error) => logger.error({ err: error }, 'render progress tick failed'))
+  }, PROGRESS_TICK_MS)
+  progress.unref()
 
   // Anything a crash left owed. Before the recovery sweep, which may add to it.
   void deliveryService

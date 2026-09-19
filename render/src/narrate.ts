@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises'
 import OpenAI from 'openai'
 import { run } from './ffmpeg.js'
-import { hasLivepeerKey, speak } from './livepeer.js'
+import { speak } from './livepeer.js'
 
 let client: OpenAI | null = null
 function openai(): OpenAI {
@@ -12,8 +12,13 @@ function openai(): OpenAI {
 /** Which network spoke the words. Reported, never guessed at from the output. */
 export type Voice = 'livepeer' | 'openai'
 
+/**
+ * Keyless is a working caller, so "has a key" no longer distinguishes anything. The
+ * network is the default because running on it is the point; `LIVEPEER_TTS=0` is for
+ * working offline, not for degrading quietly.
+ */
 export function provider(): Voice {
-  return hasLivepeerKey() ? 'livepeer' : 'openai'
+  return process.env['LIVEPEER_TTS'] === '0' ? 'openai' : 'livepeer'
 }
 
 /**

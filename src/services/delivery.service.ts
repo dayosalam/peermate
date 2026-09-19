@@ -1,6 +1,7 @@
 import { config } from '../config.js'
 import { logger } from '../core/logger.js'
-import type { EventType, User } from '../models/index.js'
+import { getMedia } from '../db/minio.js'
+import type { EventType, OutboxEntry, User } from '../models/index.js'
 import {
   conversationRepository,
   notificationRepository,
@@ -92,6 +93,8 @@ export class DeliveryService {
         status: 'pending',
         attempts: 0,
         lastError: null,
+        video: null,
+        solicited: false,
         // Left to the in-memory batch until the deferral window is over. Past that
         // the wait has failed — a crash, or a conversation that never went quiet —
         // and the sweep sends it rather than nobody sending it.
@@ -146,6 +149,8 @@ export class DeliveryService {
         status: 'pending',
         attempts: 0,
         lastError: null,
+        video: null,
+        solicited: false,
         notBefore: new Date(),
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -196,6 +201,12 @@ export class DeliveryService {
         continue
       }
 
+      // A student who asked for this and watched it being built is not being interrupted.
+      if (entry.solicited) {
+        if (await this.handOver(entry)) sent += 1
+        continue
+      }
+
       const student = { phone: entry.phone, jid: entry.jid } as User
       const delivered = await this.deliver(
         student,
@@ -209,6 +220,31 @@ export class DeliveryService {
 
     if (sent > 0) logger.info({ sent }, 'outbox drained')
     return sent
+  }
+
+  /**
+   * Sends what a student asked for, and clears the row.
+   *
+   * A failure leaves the row alone so the next sweep retries it — the reason it was
+   * written down before being attempted.
+   */
+  private async handOver(entry: OutboxEntry): Promise<boolean> {
+    try {
+      if (!entry.video) {
+        await notifierService.sendText(entry.jid, entry.body)
+      } else if (entry.video.playbackUrl && entry.video.bytes > config.research.maxFileBytes) {
+        await notifierService.sendText(entry.jid, `${entry.body}\n\n${entry.video.playbackUrl}`)
+      } else {
+        const bytes = await getMedia(entry.video.mediaKey)
+        await notifierService.sendVideo(entry.jid, bytes, entry.body)
+      }
+      await outboxRepository.succeeded(entry.key)
+      return true
+    } catch (error) {
+      await outboxRepository.failed(entry.key, String(error).slice(0, 300))
+      logger.error({ err: error, key: entry.key }, 'could not hand over a finished render')
+      return false
+    }
   }
 
   /** Why this student is not being messaged right now, or null when they can be. */

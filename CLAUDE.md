@@ -153,6 +153,25 @@ These are decisions, not defaults. Changing one changes the product.
   content is fenced by `asEvidence()` and labelled as quoted material — but the load
   is carried by tools authorising independently, so a model that *is* talked into
   trying still reaches nothing the student could not.
+- **A generated visual is never load-bearing.** A model asked to draw a shear force
+  diagram puts the arrows the wrong way round, and the student revising from it is the
+  last person able to notice. So generated imagery carries an opener, a break or a
+  closing card, and anything a student could revise from — a diagram, a formula, a
+  labelled figure — is a real page from their own material. The choice is recorded as
+  a tagged union rather than implied by which field got filled, so a test can assert
+  the rule held. See `JobVisual` in
+  [src/models/render-job.ts](src/models/render-job.ts).
+- **A render is a separate process, and delivers through the outbox.** A three-minute
+  render must not share a process with the WhatsApp socket, and a second process
+  holding `auth_state` desynchronises the session irrecoverably — so the worker
+  renders and writes the result down, and the bot sends it. MinIO carries the bytes
+  because neither can see the other's disk. Progress is written to the job row by the
+  renderer and read by the bot, which owns the only socket. See
+  [src/workers/render.worker.ts](src/workers/render.worker.ts).
+- **Progress shown to a student is measured, never estimated.** The percentage is the
+  renderer's own count of finished stages, reported line by line off its stdout. A
+  student reads it to decide whether to keep waiting, and an invented number is a
+  fabricated citation wearing a percent sign.
 - **Work is an entity, not an extraction.** `extractions` is append-only, so a
   corrected deadline is a new row with a new `eventId` — and a student's "submitted"
   keyed to that id would be orphaned exactly when it matters. `assignments` is keyed

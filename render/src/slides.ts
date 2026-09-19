@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { createCanvas, GlobalFonts, loadImage, type Image } from '@napi-rs/canvas'
+import { runCapability } from './livepeer.js'
 import { renderPageAsImage } from 'unpdf'
 import type { Cue } from './captions.js'
 import type { Visual } from './storyboard.js'
@@ -36,6 +37,13 @@ export interface Prepared {
 
 export async function prepare(visual: Visual): Promise<Prepared> {
   if (visual.kind === 'title') return { image: null, title: visual.text }
+
+  // A backdrop, never content, so there is nothing to crop to and nothing to be wrong
+  // about. If the network refuses, the beat still says what it came to say.
+  if (visual.kind === 'generated') {
+    const image = await generated(visual.prompt)
+    return image ? { image, title: null } : { image: null, title: null }
+  }
 
   const bytes = new Uint8Array(await readFile(visual.pdfPath))
   // Rendered larger than it is shown, then scaled down: a page rasterised at exactly
@@ -181,3 +189,21 @@ function wrapTitle(text: string, perLine: number): string[] {
 }
 
 export { GlobalFonts }
+
+/**
+ * `flux-schnell` because this is scenery: cheapest and fastest on the network, and a
+ * generated visual is never load-bearing, so a better one buys nothing usable.
+ *
+ * Scenery is the one part of a render worth losing, which is why this alone fails quietly.
+ */
+async function generated(prompt: string): Promise<Image | null> {
+  try {
+    const result = await runCapability('flux-schnell', { prompt })
+    if (!result.url) return null
+    const response = await fetch(result.url)
+    if (!response.ok) return null
+    return await loadImage(Buffer.from(await response.arrayBuffer()))
+  } catch {
+    return null
+  }
+}
