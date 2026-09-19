@@ -46,6 +46,8 @@ export const MessageSchema = z.object({
   processingError: z.string().nullable().default(null),
   /** How many times the pipeline has thrown on this message. Caps automatic retries. */
   processingAttempts: z.number().default(0),
+  /** Set after the private searchable copy exists; doubles as the backfill checkpoint. */
+  privateIndexedAt: z.date().nullable().optional(),
   ingestedAt: z.date(),
 })
 export type Message = z.infer<typeof MessageSchema>

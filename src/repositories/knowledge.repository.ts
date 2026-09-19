@@ -153,6 +153,16 @@ export class KnowledgeRepository extends BaseRepository<Knowledge> {
   async count(): Promise<number> {
     return this.collection.countDocuments()
   }
+
+  async deleteOwned(ownerPhone: string): Promise<number> {
+    return (await this.collection.deleteMany({ ownerPhone } as never)).deletedCount
+  }
+
+  async hasOwnedSource(ownerPhone: string, waMessageId: string): Promise<boolean> {
+    return (
+      (await this.collection.countDocuments({ ownerPhone, waMessageId } as never, { limit: 1 })) > 0
+    )
+  }
 }
 
 export const knowledgeRepository = new KnowledgeRepository()

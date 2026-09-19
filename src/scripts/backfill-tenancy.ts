@@ -19,6 +19,7 @@ import { logger } from '../core/logger.js'
 import type { Group, Message, Resource, User } from '../models/index.js'
 
 export interface Report {
+  groupsActivated: number
   usersScoped: number
   usersStranded: string[]
   ambiguous: string[]
@@ -59,12 +60,25 @@ function groupsFor(user: User, groups: Group[], ambiguous: Set<string>): string[
 export async function backfillTenancy(): Promise<Report> {
   const db = getDb()
   const report: Report = {
+    groupsActivated: 0,
     usersScoped: 0,
     usersStranded: [],
     ambiguous: [],
     resourcesScoped: 0,
     resourcesStranded: 0,
   }
+
+  const activation = await db
+    .collection<Group>('groups')
+    .updateMany({ status: 'pending' } as never, {
+      $set: {
+        status: 'approved',
+        approvedAt: new Date(),
+        groupDisclosedAt: null,
+        adderNotifiedAt: null,
+      } as never,
+    })
+  report.groupsActivated = activation.modifiedCount
 
   const groups = (await db
     .collection<Group>('groups')
@@ -124,6 +138,7 @@ async function main(): Promise<void> {
   await closeMongo()
 
   console.log(`\nusers given a group:       ${report.usersScoped}`)
+  console.log(`pending groups activated:  ${report.groupsActivated}`)
   console.log(`resources given a group:   ${report.resourcesScoped}`)
 
   if (report.ambiguous.length > 0) {

@@ -82,6 +82,12 @@ beforeEach(() => {
  * student a lecture exists; only a reminder helps at 08:15 when it starts at 09:00.
  */
 describe('when a reminder fires', () => {
+  it('retains dates but sends nothing when automatic reminders are disabled', async () => {
+    schedule = [entry({ weekday: 3, time: '08:45', venue: 'LG7' })]
+    expect(await reminderService.runFor({ ...student, automaticReminders: false }, WED_0800)).toBe(0)
+    expect(sent).toHaveLength(0)
+  })
+
   it('warns 45 minutes before a weekly lecture', async () => {
     schedule = [entry({ weekday: 3, time: '08:45', venue: 'LG7' })]
 

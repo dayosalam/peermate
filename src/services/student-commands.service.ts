@@ -1,22 +1,14 @@
 import { config } from '../config.js'
 import { logger } from '../core/logger.js'
 import type { User } from '../models/index.js'
-import {
-  assignmentStateRepository,
-  attemptRepository,
-  groupRepository,
-  notificationRepository,
-  outboxRepository,
-  renderJobRepository,
-  scheduleRepository,
-  userRepository,
-} from '../repositories/index.js'
+import { groupRepository, userRepository } from '../repositories/index.js'
 import { courseDisplay, parseCourseList } from '../utils/courses.js'
 import { formatTime12 } from '../utils/dates.js'
 import { describeResume, parsePause } from '../utils/duration.js'
 import { conversationService } from './conversation.service.js'
 import { DeliveryService } from './delivery.service.js'
 import { onboardingService } from './onboarding.service.js'
+import { deletionService } from './deletion.service.js'
 
 /** "abeg send", "pls help" — politeness, not part of the instruction. */
 const FILLER = /^(abeg|pls|plz|please|oga|bros|guy|hey|hi|yo|una)\s+/i
@@ -50,6 +42,10 @@ const URGENT_ONLY =
 const EVERYTHING = /^(everything|all alerts|send everything|tell me everything|all of it)$/i
 
 const QUIET = /^quiet\b/i
+const REMINDERS_OFF =
+  /\b(turn|switch|set)?\s*(automatic\s+)?reminders?\s+(off|stop|disable)|\b(stop|don'?t|do not)\s+(automatically\s+)?remind/i
+const REMINDERS_ON =
+  /\b(turn|switch|set)?\s*(automatic\s+)?reminders?\s+(on|start|enable)|\bautomatically\s+remind/i
 
 /**
  * Demo aid, matched case-sensitively and exactly.
@@ -87,10 +83,10 @@ const VOCAB = [
 
 const HELP_TEXT = `Here's what I can do 👇
 
-*Ask me anything about your courses*
-_"when is the CSC 301 test?"_
-_"where is it holding?"_
-_"what's due this week?"_
+*Ask me about anything I've seen*
+_"what did Tobi say about the venue?"_
+_"find the voice note from last week"_
+_"what deadlines do I have?"_
 
 *Get the files*
 _"CSC 301 resources"_ — sends the actual documents
@@ -116,7 +112,7 @@ _"quiz me"_ — I ask them one at a time and mark your answers
 *Your digest*
 *settings* — see it · *settings 6am voice* — change it
 
-I only know what was said in a group after I joined it.`
+I remember what you send me privately and what is shared in connected groups after I join them.`
 
 /**
  * Settings a registered student can change.
@@ -137,6 +133,14 @@ export class StudentCommandsService {
     const cleaned = this.clean(text)
 
     if (HELP.test(cleaned)) return HELP_TEXT
+    if (REMINDERS_OFF.test(cleaned)) {
+      await userRepository.upsert({ ...user, automaticReminders: false })
+      return `Automatic reminders are off. I'll still remember dates and deadlines, and you can ask about them any time.`
+    }
+    if (REMINDERS_ON.test(cleaned)) {
+      await userRepository.upsert({ ...user, automaticReminders: true })
+      return `Automatic reminders are on. I'll remind you about dates and deadlines I can verify from your sources.`
+    }
     // Repeating must return what was actually said: re-running retrieval for "say
     // that again" can produce a different answer, which is the one thing it must not do.
     if (REPEAT.test(cleaned)) {
@@ -260,37 +264,12 @@ If you only want me to be quiet for a while, send *pause* instead.`
    * one promise this makes, broken.
    */
   private async wipe(user: User): Promise<string> {
-    await userRepository.upsert({
-      ...user,
-      displayName: null,
-      courseKeys: [],
-      mutedCourseKeys: [],
-      groupJids: [],
-      paused: false,
-      pausedUntil: null,
-      digestPaused: false,
-      alertLevel: 'all',
-      digestFormat: 'text',
-      quietFrom: null,
-      quietTo: null,
-      lastDigestAt: null,
-      onboardingState: 'awaiting_name',
-      registeredAt: null,
-    })
-
-    await Promise.all([
-      conversationService.forget(user.phone),
-      scheduleRepository.clear(user.phone),
-      attemptRepository.clear(user.phone),
-      assignmentStateRepository.clear(user.phone),
-      notificationRepository.clear(user.phone),
-      outboxRepository.clear(user.phone),
-      renderJobRepository.clear(user.phone),
-    ])
-    logger.info({ phone: user.phone }, 'student removed themselves')
-    return `Done. I've cleared your courses and I won't message you again.
+    const complete = await deletionService.request(user)
+    return complete
+      ? `Done. I've cleared your courses and I won't message you again.
 
 Message me any time and we can start over.`
+      : `I've stopped anything queued for you and saved your deletion request. One storage service is unavailable, so I'll continue the cleanup automatically when Peermate restarts.`
   }
 
   private async rename(user: User, text: string): Promise<string> {

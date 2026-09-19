@@ -365,12 +365,7 @@ describe('reading a photographed timetable', () => {
     }
 
     await dmService.handle({ ...photo(), transcript: 'Monday CSC 301 8am' })
-    expect(outbox[0]).toMatch(/CSC 301/)
-
-    // Held while onboarding finishes its own questions — two open questions collide.
-    expect(outbox.at(-1)).not.toMatch(/Is that right\?/)
-
-    await dmService.handle(dm('7am'))
+    expect(outbox[0]).toMatch(/courses and groups are optional/i)
     expect(outbox.at(-1)).toMatch(/Is that right\?/)
     expect(conversation?.pendingAction).toBe('confirm_timetable')
   })
@@ -530,7 +525,7 @@ describe('saying which course a group is for', () => {
     pendingGroups = [pendingGroup({ addedBy: JID })]
     await dmService.handle(dm('wipe everything about me'))
 
-    expect(outbox.some((line) => /you added me to/i.test(line))).toBe(true)
+    expect(outbox.some((line) => /you added me to/i.test(line))).toBe(false)
     expect(agentCalls).toContain('wipe everything about me')
   })
 

@@ -11,8 +11,9 @@ import { resourceAlertService } from './services/resource-alert.service.js'
 import { groupService } from './services/group.service.js'
 import { PROGRESS_TICK_MS, renderProgressService } from './services/render-progress.service.js'
 import { connectWhatsApp, onGroupJoin, onGroupLeave, onMessage } from './whatsapp/socket.js'
-import { ingestQueue, recoverUnfinished } from './workers/ingest.worker.js'
+import { backfillPrivateMemory, ingestQueue, recoverUnfinished } from './workers/ingest.worker.js'
 import { backfillTenancy } from './scripts/backfill-tenancy.js'
+import { deletionService } from './services/deletion.service.js'
 
 /** Shorter than the orchestrator's own SIGKILL timer, so the flushes below still run. */
 const SHUTDOWN_GRACE_MS = 10_000
@@ -49,6 +50,15 @@ async function main(): Promise<void> {
     logger.error({ err: error }, 'tenancy backfill failed — pre-tenancy accounts stay silent')
   }
 
+  // Do this before the socket and scheduler can send anything. A user whose deletion
+  // was interrupted must not receive one last queued alert during recovery.
+  try {
+    const deleted = await deletionService.recover()
+    if (deleted > 0) logger.info({ count: deleted }, 'private deletions recovered')
+  } catch (error) {
+    logger.error({ err: error }, 'private deletion recovery failed')
+  }
+
   // The socket handler does nothing but enqueue, so a slow transcription can never
   // stall WhatsApp ingestion.
   onMessage((message) => ingestQueue.push(message))
@@ -64,6 +74,9 @@ async function main(): Promise<void> {
     void handle.catch((error) => logger.error({ err: error, chatJid }, 'group departure failed'))
   })
   const sock = await connectWhatsApp()
+  void groupService
+    .retryDisclosures()
+    .catch((error) => logger.error({ err: error }, 'group disclosure recovery failed'))
   // Recorded after the socket is up, because the number is only known once WhatsApp
   // says who it logged in as. An operator reading this collection needs to see which
   // number is holding which session before they can safely restart anything.
@@ -97,6 +110,9 @@ async function main(): Promise<void> {
 
   // After the socket is up, so recovered announcements can still be delivered.
   void recoverUnfinished().catch((error) => logger.error({ err: error }, 'recovery sweep failed'))
+  void backfillPrivateMemory()
+    .then((count) => count && logger.info({ count }, 'private memory backfilled'))
+    .catch((error) => logger.error({ err: error }, 'private memory backfill failed'))
   logger.info({ shard: config.whatsapp.shardId }, 'peermate up')
 }
 

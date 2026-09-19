@@ -15,6 +15,8 @@ import {
   extractionRepository,
   groupRepository,
   pendingRepository,
+  memoryCollectionRepository,
+  userRepository,
 } from '../../repositories/index.js'
 import { prepService } from '../prep.service.js'
 import { researchService } from '../research.service.js'
@@ -82,7 +84,9 @@ async function resolveCourse(named: string | undefined, user: User): Promise<str
  * else's group resolves to nothing rather than to their cohort.
  */
 async function resolveGroup(named: string | undefined, user: User): Promise<Group | null> {
-  const mine = await groupRepository.forStudent(user.groupJids)
+  const mine = groupRepository.byJids
+    ? await groupRepository.byJids(accessibleGroups(user))
+    : await groupRepository.forStudent(accessibleGroups(user))
   if (mine.length === 0) return null
   if (mine.length === 1 && !named) return mine[0]!
   if (!named) return null
@@ -98,10 +102,20 @@ async function resolveGroup(named: string | undefined, user: User): Promise<Grou
   )
 }
 
+function accessibleGroups(user: User): string[] {
+  return [...new Set([...(user.groupJids ?? []), ...(user.historicalGroupJids ?? [])])]
+}
+
 /** Authority over a room is being in it, checked afresh rather than taken on trust. */
 async function mayChange(user: User, group: Group | null): Promise<Group | null> {
   if (!group) return null
   return (await membershipService.mayAdminister(user, group)) ? group : null
+}
+
+function parseInstant(value: unknown): Date | null {
+  if (!value) return null
+  const parsed = new Date(String(value))
+  return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
 const tools: Tool[] = [
@@ -119,11 +133,12 @@ const tools: Tool[] = [
     }),
     async run(args, { user }) {
       const question = String(args['question'] ?? '')
-      const scoped = await resolveCourse(args['course'] as string | undefined, user)
+      const named = args['course'] as string | null | undefined
+      const scoped = await resolveCourse(named ?? undefined, user)
       const candidates = await retrievalService.search(
         question,
-        scoped ? [scoped] : user.courseKeys,
-        user.groupJids,
+        scoped ? [scoped] : [],
+        accessibleGroups(user),
         // Their own uploads count as something they can ask about. Anything they sent
         // in a DM — a photographed timetable, a past paper a friend forwarded them —
         // is theirs and nobody else's, and is reached by owner rather than by group.
@@ -133,7 +148,80 @@ const tools: Tool[] = [
       if (candidates.length === 0) {
         return 'Nothing in the archive matches that. Say so plainly — do not guess, and do not answer from your own knowledge of the subject.'
       }
+      await conversationService.rememberSource?.(user.phone, candidates[0]!.waMessageId)
       return asEvidence('group messages and shared files', format(candidates))
+    },
+  },
+
+  {
+    name: 'list_memory',
+    description:
+      'Recover messages and media Peermate has seen using exact filters such as sender, group, words, media type, or date. Use for "show me everything from Tobi", "what files came last week", "find that voice note", or when semantic search is too broad.',
+    tier: 'read',
+    parameters: z.object({
+      words: z.string().nullable().describe('Exact words to contain, or null.'),
+      sender: z.string().nullable().describe('Sender name, or null.'),
+      group: z.string().nullable().describe('Group name, or null for every accessible source.'),
+      type: z
+        .enum(['text', 'image', 'audio', 'document', 'video', 'sticker', 'other'])
+        .nullable()
+        .describe('Source type, or null.'),
+      since: z.string().nullable().describe('ISO date/time lower bound, or null.'),
+      until: z.string().nullable().describe('ISO date/time upper bound, or null.'),
+      limit: z.number().min(1).max(50).nullable().describe('Maximum results; null means 20.'),
+    }),
+    async run(args, { user }) {
+      const namedGroup = args['group'] ? String(args['group']) : null
+      const group = namedGroup ? await resolveGroup(namedGroup, user) : null
+      if (namedGroup && !group) return 'That is not one of their verified groups.'
+
+      const rows = await messageRepository.accessible(user.phone, accessibleGroups(user), {
+        words: args['words'] ? String(args['words']) : null,
+        sender: args['sender'] ? String(args['sender']) : null,
+        chatJid: group?.chatJid ?? null,
+        type: (args['type'] as never) ?? null,
+        since: parseInstant(args['since']),
+        until: parseInstant(args['until']),
+        limit: args['limit'] ? Number(args['limit']) : 20,
+      })
+      if (rows.length === 0) return 'No accessible source matches those filters.'
+
+      await conversationService.rememberSource?.(user.phone, rows[0]!.waMessageId)
+      return asEvidence(
+        'recoverable source records',
+        rows
+          .map((row) => {
+            const content =
+              row.text ?? row.caption ?? row.transcript ?? `[${row.type} with no extracted text]`
+            const stamp = formatStamp(row.timestamp, config.digest.timezone)
+            return `[source ${row.waMessageId} | ${row.senderName ?? 'unknown'} | ${row.type} | ${stamp}]\n${content.slice(0, 700)}`
+          })
+          .join('\n\n'),
+      )
+    },
+  },
+
+  {
+    name: 'get_source',
+    description:
+      'Retrieve one exact source record by the source ID returned by list_memory. Use to inspect it, establish provenance, or make it the target of a following "send the original" request.',
+    tier: 'read',
+    parameters: z.object({ source_id: z.string() }),
+    async run(args, { user }) {
+      const id = String(args['source_id'] ?? '')
+      const source = await messageRepository.findById(id)
+      const allowed =
+        source &&
+        ((source.fromGroup && accessibleGroups(user).includes(source.chatJid)) ||
+          (!source.fromGroup && source.senderPhone === user.phone))
+      if (!source || !allowed) return 'That source is not available to this user.'
+
+      await conversationService.rememberSource?.(user.phone, source.waMessageId)
+      const words = source.text ?? source.caption ?? source.transcript ?? '[no extracted text]'
+      return asEvidence(
+        'one recoverable source record',
+        `[source ${source.waMessageId} | ${source.senderName ?? 'unknown'} | ${source.type} | ${formatStamp(source.timestamp, config.digest.timezone)} | original media ${source.mediaKey ? 'available' : 'not attached'}]\n${words}`,
+      )
     },
   },
 
@@ -661,7 +749,7 @@ const tools: Tool[] = [
 
       // Scoped like everything else: a referent is only ever theirs to ask about if
       // it came from a group they are in.
-      if (source.fromGroup && !user.groupJids.includes(source.chatJid)) {
+      if (source.fromGroup && !accessibleGroups(user).includes(source.chatJid)) {
         return 'That message is not from one of their groups.'
       }
 
@@ -777,6 +865,87 @@ const tools: Tool[] = [
   },
 
   {
+    name: 'configure_group',
+    description:
+      "Control one of the student's groups: all activity, deadlines only, pause proactive updates, or forget access to its history.",
+    tier: 'reversible',
+    parameters: z.object({
+      group: z.string(),
+      mode: z.enum(['all', 'deadlines', 'paused', 'forget']),
+    }),
+    async run(args, { user }) {
+      const group = await resolveGroup(String(args['group'] ?? ''), user)
+      if (!group) return 'That is not one of their accessible groups.'
+      const mode = args['mode'] as 'all' | 'deadlines' | 'paused' | 'forget'
+      if (mode === 'forget') {
+        await userRepository.forgetGroup(user.phone, group.chatJid)
+        return `Forgot *${group.name ?? 'that group'}*. Its history is no longer available to this user.`
+      }
+      await userRepository.setGroupPreference(user.phone, group.chatJid, mode)
+      return mode === 'paused'
+        ? `Paused proactive updates from *${group.name ?? 'that group'}*. Its existing history is still searchable.`
+        : mode === 'deadlines'
+          ? `Only deadlines, tests and assignments from *${group.name ?? 'that group'}* will trigger proactive updates.`
+          : `All proactive updates from *${group.name ?? 'that group'}* are enabled.`
+    },
+  },
+
+  {
+    name: 'organize_memory',
+    description:
+      'Create, update or delete a named personal collection of recoverable source messages.',
+    tier: 'reversible',
+    parameters: z.object({
+      action: z.enum(['create', 'add', 'remove', 'delete']),
+      name: z.string(),
+      source_id: z.string().nullable(),
+    }),
+    async run(args, { user }) {
+      const action = args['action'] as 'create' | 'add' | 'remove' | 'delete'
+      const name = String(args['name'] ?? '').trim()
+      const sourceId = args['source_id'] ? String(args['source_id']) : null
+      if (!name) return 'A collection needs a name.'
+      if (action === 'delete') {
+        await memoryCollectionRepository.delete(user.phone, name)
+        return `Deleted the collection *${name}*. The original sources were not deleted.`
+      }
+      if ((action === 'add' || action === 'remove') && !sourceId) return 'Choose a source first.'
+      if (sourceId) {
+        const source = await messageRepository.findById(sourceId)
+        const allowed =
+          source &&
+          ((!source.fromGroup && source.senderPhone === user.phone) ||
+            (source.fromGroup && accessibleGroups(user).includes(source.chatJid)))
+        if (!allowed) return 'That source is not available to this user.'
+      }
+      if (action === 'remove') await memoryCollectionRepository.remove(user.phone, name, sourceId!)
+      else await memoryCollectionRepository.add(user.phone, name, sourceId ?? undefined)
+      return `${action === 'remove' ? 'Removed the source from' : action === 'create' ? 'Created' : 'Saved the source to'} *${name}*.`
+    },
+  },
+
+  {
+    name: 'list_collections',
+    description: 'List personal collections, or list the recoverable source IDs inside one.',
+    tier: 'read',
+    parameters: z.object({ name: z.string().nullable() }),
+    async run(args, { user }) {
+      const name = args['name'] ? String(args['name']) : null
+      if (!name) {
+        const rows = await memoryCollectionRepository.list(user.phone)
+        return rows.length
+          ? rows.map((row) => `- ${row.name} (${row.sourceMessageIds.length})`).join('\n')
+          : 'No collections yet.'
+      }
+      const row = await memoryCollectionRepository.find(user.phone, name)
+      if (!row) return 'No collection with that name.'
+      return row.sourceMessageIds.length
+        ? row.sourceMessageIds.map((id) => `- source ${id}`).join('\n')
+        : `*${row.name}* is empty.`
+    },
+  },
+
+  {
     name: 'update_settings',
     description:
       'Change how Peermate messages them: pause, resume, mute a course, urgent only, quiet hours, digest time, add or drop a course, change their name. Pass their instruction as they said it.',
@@ -798,7 +967,10 @@ const tools: Tool[] = [
  * promises a render, and nothing renders unless a worker is running. Kept in the list
  * and filtered out here so turning it on is one env var, not a code change.
  */
-const available = tools.filter((tool) => config.render.enabled || tool.name !== 'render_explainer')
+const retired = new Set(['claim_group', 'propose_group_course'])
+const available = tools.filter(
+  (tool) => !retired.has(tool.name) && (config.render.enabled || tool.name !== 'render_explainer'),
+)
 
 export const toolsByName = new Map(available.map((tool) => [tool.name, tool]))
 export const allTools = available

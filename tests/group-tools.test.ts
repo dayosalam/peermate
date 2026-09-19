@@ -6,15 +6,54 @@ let allowed = true
 const changed: Array<{ chatJid: string; course: string | null }> = []
 const trusted: Array<{ chatJid: string; name: string; role: string }> = []
 const ignored: string[] = []
+const preferences: Array<{ phone: string; chatJid: string; mode: string }> = []
+const forgotten: Array<{ phone: string; chatJid: string }> = []
+const collections = new Map<string, string[]>()
 
 vi.mock('../src/repositories/index.js', () => ({
   groupRepository: {
     forStudent: vi.fn(async () => mine),
+    byJids: vi.fn(async (jids: string[]) => mine.filter((group) => jids.includes(group.chatJid))),
     findByJid: vi.fn(async (jid: string) => mine.find((g) => g.chatJid === jid) ?? null),
+  },
+  userRepository: {
+    setGroupPreference: vi.fn(async (phone: string, chatJid: string, mode: string) => {
+      preferences.push({ phone, chatJid, mode })
+    }),
+    forgetGroup: vi.fn(async (phone: string, chatJid: string) => {
+      forgotten.push({ phone, chatJid })
+    }),
+  },
+  memoryCollectionRepository: {
+    add: vi.fn(async (_phone: string, name: string, source?: string) => {
+      const values = collections.get(name) ?? []
+      if (source && !values.includes(source)) values.push(source)
+      collections.set(name, values)
+    }),
+    remove: vi.fn(async (_phone: string, name: string, source: string) => {
+      collections.set(
+        name,
+        (collections.get(name) ?? []).filter((id) => id !== source),
+      )
+    }),
+    delete: vi.fn(async (_phone: string, name: string) => collections.delete(name)),
+    list: vi.fn(async () =>
+      [...collections].map(([name, sourceMessageIds]) => ({ name, sourceMessageIds })),
+    ),
+    find: vi.fn(async (_phone: string, name: string) => {
+      const sourceMessageIds = collections.get(name)
+      return sourceMessageIds ? { name, sourceMessageIds } : null
+    }),
   },
   pendingRepository: { unresolved: vi.fn(async () => []), resolve: vi.fn(), openForGroup: vi.fn() },
   extractionRepository: {},
-  messageRepository: {},
+  messageRepository: {
+    findById: vi.fn(async (id: string) => ({
+      waMessageId: id,
+      fromGroup: true,
+      chatJid: 'g1@g.us',
+    })),
+  },
 }))
 
 vi.mock('../src/services/membership.service.js', () => ({
@@ -55,11 +94,16 @@ const run = (name: string, args: Record<string, unknown>): Promise<string> =>
   toolsByName.get(name)!.run(args, context)
 
 beforeEach(() => {
+  user.groupJids = ['g1@g.us']
+  user.historicalGroupJids = []
   mine = [group()]
   allowed = true
   changed.length = 0
   trusted.length = 0
   ignored.length = 0
+  preferences.length = 0
+  forgotten.length = 0
+  collections.clear()
 })
 
 /**
@@ -87,12 +131,14 @@ describe('changing a group', () => {
 
   it('will not guess which group when they are in several', async () => {
     mine = [group(), group({ chatJid: 'g2@g.us', name: 'ABE 501 class' })]
+    user.groupJids = ['g1@g.us', 'g2@g.us']
     await run('set_group_course', { group: null, course: 'CVE 581' })
     expect(changed).toEqual([])
   })
 
   it('picks the named one when they are in several', async () => {
     mine = [group(), group({ chatJid: 'g2@g.us', name: 'ABE 501 class' })]
+    user.groupJids = ['g1@g.us', 'g2@g.us']
     await run('set_group_course', { group: 'ABE 501 class', course: 'ABE 501' })
     expect(changed).toEqual([{ chatJid: 'g2@g.us', course: 'ABE 501' }])
   })
@@ -132,5 +178,29 @@ describe('stopping a group', () => {
   /** Costly and hard to undo, so the agent holds it for a yes before running it. */
   it('is held for confirmation rather than run outright', () => {
     expect(toolsByName.get('stop_reading_group')!.tier).toBe('destructive')
+  })
+})
+
+describe('personal group controls', () => {
+  it('can limit a group to deadline notifications without losing retrieval', async () => {
+    const reply = await run('configure_group', { group: 'CVE 575', mode: 'deadlines' })
+    expect(preferences).toEqual([{ phone: '234', chatJid: 'g1@g.us', mode: 'deadlines' }])
+    expect(reply).toMatch(/deadlines, tests and assignments/i)
+  })
+
+  it('can explicitly forget a historically authorized group', async () => {
+    user.groupJids = []
+    user.historicalGroupJids = ['g1@g.us']
+    const reply = await run('configure_group', { group: 'CVE 575', mode: 'forget' })
+    expect(forgotten).toEqual([{ phone: '234', chatJid: 'g1@g.us' }])
+    expect(reply).toMatch(/no longer available/i)
+  })
+})
+
+describe('personal memory collections', () => {
+  it('saves only an accessible source and lists the collection', async () => {
+    await run('organize_memory', { action: 'add', name: 'Exam prep', source_id: 'm1' })
+    expect(await run('list_collections', { name: null })).toMatch(/Exam prep \(1\)/)
+    expect(await run('list_collections', { name: 'Exam prep' })).toMatch(/source m1/)
   })
 })

@@ -212,9 +212,9 @@ describe('the model is not trusted with authorization', () => {
 
     await agentService.answer('when is the BIO 101 test?', context)
 
-    // BIO101 is not hers, so it resolves to nothing and the search falls back to her
-    // own courses — never to the course the model named.
-    expect(searched[0]).toEqual({ courseKeys: ['CVE575'], groupJids: ['111@g.us'] })
+    // BIO101 is not hers, so it never becomes a filter. The verified group boundary
+    // remains in force, while course metadata is optional.
+    expect(searched[0]).toEqual({ courseKeys: [], groupJids: ['111@g.us'] })
   })
 
   it('refuses a tool that does not exist instead of erroring out', async () => {

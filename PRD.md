@@ -9,7 +9,7 @@
 
 ## 1. One-liner
 
-Peermate is an agent that sits silently inside university course group chats, hears the announcements students missed — including voice notes and photographed timetables — and messages each registered student privately with what matters, citing where it came from.
+Peermate is a personal memory and action agent for students. It remembers private messages and permitted group activity — including voice notes, documents and photographed timetables — then lets each user retrieve, organize and act on that information with traceable sources.
 
 ## 2. Problem
 
@@ -23,17 +23,17 @@ Undergraduates in Nigerian universities. WhatsApp is the primary and often only 
 
 ## 4. What Peermate does
 
-**One bot number, many students.** Peermate is a single WhatsApp number added to course groups. It reads everything those groups say, posts nothing, and speaks only in 1:1 DMs with students who registered with it. One number in `CSC 301` serves every student taking CSC 301.
+**Useful immediately, groups optional.** A user can privately send or forward anything without completing a form, choosing courses or adding Peermate to a group. Groups are optional connected sources. When added to one, Peermate posts one disclosure, begins learning from that point forward and privately confirms with the person who added it.
 
-| Stage | Behaviour |
-|---|---|
-| **Ingest** | Receives every message in every joined group — text, voice notes, images, PDFs — over a Baileys socket linked to the bot number. |
-| **Understand** | Transcribes voice notes (Whisper), reads images (vision), and classifies each message as announcement / question / noise in one call. |
-| **Extract** | For announcements: course, event type, date, time, venue — plus source message ID, sender, timestamp. |
-| **File** | Every document that lands in a group is tagged to a course and type (slides / past questions / assignment / textbook), stored, and — for PDFs, `.docx` and scans — read, so its contents can be questioned. |
-| **Act** | DMs registered students: instant announcement alerts, a daily digest, deadline warnings with the file attached. Answers questions with citations. Sends the actual files back. |
-| **Converse** | Holds a short memory of the last exchange, so the follow-ups people actually send — *"where is it?"*, *"who said that?"*, *"send the second one"* — resolve against what was just discussed rather than starting cold. Keeps the running thread for longer, so *"you said Thursday"* has something to refer to. |
-| **Prepare** | Builds a practice set for a course out of the files people shared — what the material covers, then questions in the style the lecturer sets — and quizzes the student one question at a time, marking each answer. |
+| Stage          | Behaviour                                                                                                                                                                                                                                                                                                       |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Ingest**     | Receives every message in every joined group — text, voice notes, images, PDFs — over a Baileys socket linked to the bot number.                                                                                                                                                                                |
+| **Understand** | Transcribes voice notes (Whisper), reads images (vision), and classifies each message as announcement / question / noise in one call.                                                                                                                                                                           |
+| **Extract**    | For announcements: course, event type, date, time, venue — plus source message ID, sender, timestamp.                                                                                                                                                                                                           |
+| **File**       | Every document that lands in a group is tagged to a course and type (slides / past questions / assignment / textbook), stored, and — for PDFs, `.docx` and scans — read, so its contents can be questioned.                                                                                                     |
+| **Act**        | Answers from the user's private and verified group memory, creates preference-controlled reminders, sends original sources back, and provides cited alerts and digests.                                                                                                                                         |
+| **Converse**   | Holds a short memory of the last exchange, so the follow-ups people actually send — _"where is it?"_, _"who said that?"_, _"send the second one"_ — resolve against what was just discussed rather than starting cold. Keeps the running thread for longer, so _"you said Thursday"_ has something to refer to. |
+| **Prepare**    | Builds a practice set for a course out of the files people shared — what the material covers, then questions in the style the lecturer sets — and quizzes the student one question at a time, marking each answer.                                                                                              |
 
 **A DM can be spoken or photographed, not just typed.** Media is read before the DM and group paths diverge, so a recorded question is transcribed and a photographed timetable is OCR'd exactly as it would be in a group. A student can register by sending a picture of their timetable and ask questions without typing.
 
@@ -41,17 +41,17 @@ Undergraduates in Nigerian universities. WhatsApp is the primary and often only 
 
 The sync is best-effort and its depth is not guaranteed, so **the demo is planned as though there were none** (§9). Inherited history is a bonus, never a dependency.
 
-**Students, however, get full history.** A student who registers today can query everything Peermate has stored since it joined their selected course groups, and pull the resource library immediately. For the prototype, course selection is self-reported during onboarding; membership verification is deferred.
+**Users keep the history they were entitled to.** A user can query their own private memory and everything Peermate stored while they were a verified member of a connected group. Leaving the group stops new ingestion/access expansion but does not erase previously authorized history. The user can explicitly forget a group to remove their own access. Membership is checked against WhatsApp identity/LID data; course selection only narrows results when the user wants it to.
 
 ## 5. The differentiator
 
 Three moments, all in the video:
 
-**1. It heard what nobody played.** She asks *"when is the CSC 301 test?"* Peermate answers: *Friday 10am, LG7 — from Dr. Bello's voice note, Tuesday 4:12pm.* She never opened that voice note. No chatbox can be in that room while the conversation is still happening.
+**1. It heard what nobody played.** She asks _"when is the CSC 301 test?"_ Peermate answers: _Friday 10am, LG7 — from Dr. Bello's voice note, Tuesday 4:12pm._ She never opened that voice note. No chatbox can be in that room while the conversation is still happening.
 
 **2. Eight rooms, one thread.** The digest aggregates every group into a single message. A chatbox can be in zero rooms; Peermate is in all of them.
 
-**3. The library assembled itself.** *"CSC 301 resources"* returns the course's whole shelf — slides from week three, past questions from August, the assignment brief — as actual files, sent back in the DM. Nobody curated it. It exists because Peermate was in the room when each file arrived. A chatbox starts empty every session; you would have to find and upload all forty files yourself, which is the work being avoided.
+**3. The library assembled itself.** _"CSC 301 resources"_ returns the course's whole shelf — slides from week three, past questions from August, the assignment brief — as actual files, sent back in the DM. Nobody curated it. It exists because Peermate was in the room when each file arrived. A chatbox starts empty every session; you would have to find and upload all forty files yourself, which is the work being avoided.
 
 **The 5/5 line for the submission:**
 
@@ -66,7 +66,7 @@ Three moments, all in the video:
 3. **Voice note transcription** ← the differentiator, protect its time
 4. Classification + structured extraction, one call, tagged union
 5. Mongo persistence + MinIO media + **persisted Baileys auth state** (survives a restart without re-pairing)
-6. Conversational onboarding in DM (register, pick courses)
+6. Immediate first-contact activation; optional profile, course and notification preferences are learned progressively
 7. **Outbound DMs** — instant announcement alert + daily digest
 8. Cited Q&A over the store
 
@@ -81,7 +81,7 @@ Items 9–12 depend on the spine. If the spine is not solid, they are worth noth
 
 ### Explicitly out
 
-Posting in groups · `.ics` files · fee/result/hostel extraction · calendar API · web frontend
+Ongoing group conversation by the bot (beyond the one-time disclosure) · `.ics` files · calendar API · web frontend
 
 **On documents: tag first, then read.** Filename plus the surrounding messages identify the course and type in one LLM call. That tagging is what makes the library work, and it happens whether or not the file can be opened.
 
@@ -91,17 +91,20 @@ Because reading is a second pass, it cannot cost anything. A corrupt file, an un
 
 ## 7. Privacy — the central claim
 
-Peermate reads the messages of everyone in a group, including people who never registered with it. For the prototype and public demo, only staged groups and synthetic messages are used:
+Peermate reads the messages of everyone in a connected group, including people who never registered with it. Product use therefore requires visible notice in the room and a documented retention policy:
 
-- **It posts nothing, ever, in any group.** It is a reader. Group members see a number that never speaks.
-- **A group is read only after an operator approves it.** Anyone can add the number to any chat, and being added is not consent from the people already in it. A new group is recorded as `pending` and nothing in it is ingested, embedded or extracted until it is approved against a named course. A student who added the bot can say which course a group is for; that is recorded as a proposal and relayed, never acted on. This reverses the original design, where a group became live the moment the number joined it.
-- **It reports only to registered students about their selected courses.** Course membership verification is not implemented in the prototype, so it must not be deployed in real student groups yet.
-- **Registration is always initiated by the student.** Peermate never DMs someone who has not messaged it first. It will not harvest group participant lists to find users, even though the API permits it.
+- **It discloses itself once.** On joining, Peermate tells the room that new messages and media will be retained for member retrieval. The room notice and private confirmation have independent durable checkpoints, so retrying one never repeats the other. It does not otherwise participate unless explicitly addressed by a supported group interaction.
+- **Group learning begins immediately and requires no course code.** Course, project and topic labels are optional metadata inferred when useful; they never gate ingestion.
+- **Retrieval is authorization-scoped.** A user can access private material they sent and group material from groups whose membership was verified for them. Leaving preserves that already authorized archive; explicitly forgetting the group removes access. Knowing a group name or course code grants nothing.
+- **Original sources are retained with provenance.** Searchable text never replaces the underlying message, file, image or voice note. Answers can be traced to and recover the original source.
+- **The user controls proactive reminders, group modes and deletion.** Dates are extracted automatically; delivery follows the user's reminder preference. Each group can be fully active, deadlines-only, or paused while remaining searchable. A user can forget one group, or delete their account and private messages, embeddings, collections and stored media without deleting shared group history needed by other members. Cross-store account deletion is checkpointed and resumes after a process restart.
 - **The bot number must be a dedicated account.** A companion device sees everything that account sees — its personal DMs and every unrelated group, not just the course groups. Peermate is linked to a fresh SIM used for nothing else. Never link it to a personal WhatsApp account.
 - **OpenAI processes message content.** There is no third-party message broker in the path; the socket is direct. Content leaves the host only for transcription, vision and extraction. Data is not sold or intentionally surfaced outside the staged demo users.
 - **A group admin can remove the number at any time**, which ends ingestion for that group immediately.
+- **Retention is explicit.** Private sources remain until the user deletes their account. Conversation transcripts expire after 30 days. Shared group sources remain while the product operator's published group-retention window applies, because deleting one member cannot invalidate sources used by others. The operator must choose and publish that window before onboarding a real group.
+- **Processors are disclosed.** OpenAI receives the content needed for transcription, vision, extraction and answers. Exa receives research topics, not the private archive. Video processors must be added to this disclosure before video generation is enabled.
 
-Production consent, access control, retention and deletion are explicitly deferred. Never use real classmates' messages in this prototype.
+Before a real group is onboarded, its members must receive the room disclosure and the operator must publish contact, retention and deletion terms. Access control and private deletion are enforced by the product; jurisdiction-specific consent language and institutional approval still require legal review rather than being inferred by the software.
 
 ## 8. Architecture
 
@@ -126,8 +129,8 @@ WhatsApp groups
       │
   scheduler ── 07:00 digest per student
       │
-  DM handler ── onboarding state machine · Q&A · "CSC 301 resources"
-                   └─ retrieval: Chroma metadata filter (course + window), k=20–30,
+  DM handler ── immediate activation · agent tools · Q&A · reminders · source recovery
+                   └─ retrieval: verified source scope (+ optional course/window), k=20–30,
                       LLM resolves supersession and conflicts from timestamps
 ```
 
@@ -141,17 +144,20 @@ The tradeoff is that the socket and the worker now share a fate. An unhandled re
 
 ### Collections
 
-| Collection | Purpose | Key fields |
-|---|---|---|
-| `groups` | which groups the bot is in | `chat_jid` (`…@g.us`), `name`, `default_course`, `joined_at` |
-| `users` | registered students | `phone`, `jid` (`…@s.whatsapp.net`), `name`, `courses[]`, `onboarding_state`, `registered_at` |
-| `messages` | every source message | `wa_message_id` (`key.id`), `chat_jid` (`key.remoteJid`), `sender_jid` (`key.participant`), `sender_phone`, `sender_name`, `timestamp`, `type`, `text`, `caption`, `quoted_message_id` (`contextInfo.stanzaId`), `media_key`, `transcript`, `processing_status` |
-| `extractions` | every extracted event, **append-only** | `source_message_id`, `kind`, `course`, `event_type`, `original_date_text`, `date`, `time`, `venue`, `confidence`, `extracted_at` |
-| `resources` | the course library | `course`, `doc_type`, `filename`, `media_key`, `posted_by`, `posted_at`, `source_message_id` |
-| `notifications` | delivery log | `user_phone`, `extraction_id`, `notification_type`, `status`, `sent_at` |
-| `conversations` | the thread, per student | `phone`, `course_key`, `event_id`, `source_message_id`, `files[]`, `last_answer`, `turns[]`, `quiz`, `pending_action`, `updated_at` (30d TTL) |
-| `schedules` | a student's own timetable, **private to them** | `phone`, `course_key`, `kind`, `date` *or* `weekday`, `time`, `venue`, `source_message_id` |
-| `courses` | what a code means | `course_key`, `code`, `title`, `lecturer`, `aliases[]` |
+| Collection           | Purpose                                        | Key fields                                                                                                                                                              |
+| -------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `groups`             | connected group sources                        | `chat_jid`, `name`, `default_course`, `status`, `shard_id`, `joined_at`, `group_disclosed_at`, `adder_notified_at`                                                      |
+| `users`              | students and their access/preferences          | `phone`, `jid`, `courses[]`, `group_jids[]`, `historical_group_jids[]`, `group_preferences[]`, `automatic_reminders`, `registered_at`                                   |
+| `messages`           | every source message                           | `wa_message_id`, `chat_jid`, `sender_jid`, `sender_phone`, `timestamp`, `type`, `text`, `caption`, `media_key`, `transcript`, `processing_status`, `private_indexed_at` |
+| `knowledge`          | Atlas-searchable message/document chunks       | `chunk_id`, `source_message_id`, `chat_jid`, `owner_phone`, `course_key`, `text`, `embedding`, provenance fields                                                        |
+| `extractions`        | every extracted event, **append-only**         | `source_message_id`, `event_id`, `course`, `event_type`, `date`, `time`, `venue`, `authority`, `corroborated_by`, `extracted_at`                                        |
+| `resources`          | the course library                             | `course`, `doc_type`, `filename`, `media_key`, `posted_by`, `posted_at`, `source_message_id`                                                                            |
+| `notifications`      | delivery log                                   | `user_phone`, `extraction_id`, `notification_type`, `status`, `sent_at`                                                                                                 |
+| `conversations`      | the thread, per student                        | `phone`, `course_key`, `event_id`, `source_message_id`, `files[]`, `last_answer`, `turns[]`, `quiz`, `pending_action`, `updated_at` (30d TTL)                           |
+| `memory_collections` | named lists of source references               | `collection_id`, `user_phone`, `name`, `source_message_ids[]`, `created_at`, `updated_at`                                                                               |
+| `deletion_jobs`      | resumable private-data deletion                | `phone`, `media_keys[]`, `completed_steps[]`, `status`, `attempts`, `last_error`, `updated_at`                                                                          |
+| `schedules`          | a student's own timetable, **private to them** | `phone`, `course_key`, `kind`, `date` _or_ `weekday`, `time`, `venue`, `source_message_id`                                                                              |
+| `courses`            | what a code means                              | `course_key`, `code`, `title`, `lecturer`, `aliases[]`                                                                                                                  |
 
 `extractions` are append-only. A venue change creates a new extraction rather than updating history. `messages` may be updated with transcription and processing status as the worker completes.
 
@@ -194,14 +200,14 @@ Each stored row also carries `event_id` (the event, not the message — one voic
 
 Every processable message is embedded into Chroma as **one document per message** — never chunked across messages — carrying `source_message_id`, `course`, `sender`, and `timestamp` in metadata. Citations therefore point at a real message, not a chunk. Stickers and unsupported empty media are retained but not embedded.
 
-On a question: filter by one of the user's selected courses and a recent time window. Retrieve k=20–30 within that slice and hand the LLM the whole candidate set with timestamps. The LLM resolves obvious corrections; when records genuinely disagree, it shows both with their sources and does not choose.
+On a question: first enforce the user's private namespace and verified group memberships. Course, sender, group, media type and time are optional filters, never access credentials. Hybrid semantic and exact retrieval returns source IDs and provenance; the selected source becomes the referent for “show/send me the original.”
 
 ### Outbound
 
 - **Instant DM on every new announcement** to every student subscribed to that course.
 - **Daily digest at 07:00 Africa/Lagos**, containing new announcements since the previous digest plus events due that day.
 - **Deadline warning at 07:00 on the due date**, with the brief attached when a matching course resource exists.
-- **Semantic dedupe, reversing the original decision.** Three classmates mentioning one test is one test, and three identical DMs read as a bug rather than as thoroughness. A repeat is matched on course, event type, date, and any *stated* time and venue — nulls stay open, so "test Friday" and "test Friday 10am in LG7" are one event that gains detail, while two same-day assignments with different deadlines stay two. A matched repeat is recorded as corroboration and fills gaps in the first telling; it never overwrites a stated value, and it does not produce a second DM.
+- **Semantic dedupe, reversing the original decision.** Three classmates mentioning one test is one test, and three identical DMs read as a bug rather than as thoroughness. A repeat is matched on course, event type, date, and any _stated_ time and venue — nulls stay open, so "test Friday" and "test Friday 10am in LG7" are one event that gains detail, while two same-day assignments with different deadlines stay two. A matched repeat is recorded as corroboration and fills gaps in the first telling; it never overwrites a stated value, and it does not produce a second DM.
 - **Whose word it was decides whether a repeat is worth hearing.** Each group can name trusted senders — a lecturer, a class rep — and every extraction stores the `authority` of whoever said it. A classmate repeating a classmate is backing, and silent. A lecturer confirming what a classmate said changes whether the student can act on it, so that one is sent, as a confirmation rather than as news.
 - **Per-user delivery controls, also reversing the original decision.** Being unable to turn Peermate down is what gets it muted at the WhatsApp level, which loses the student everything rather than the part they objected to. A student can pause everything, pause until a day they name, mute one course, narrow to urgent only, or turn off the morning digest alone. Quiet hours (22:00–06:00 by default) hold instant alerts. Nothing is discarded by any of these: the digest covers everything since it last ran, so a hold defers rather than deletes.
 - **An alert never lands in the middle of a conversation.** An announcement arriving seconds after a student asked something reads as the answer to their question. While an exchange is live the alert is held, batched with anything else that arrives, and sent once the thread goes quiet — capped, so a long conversation cannot bury a test alert.
@@ -273,7 +279,7 @@ message starts from nothing.
 ### Preparing for a test
 
 The files are already read, chunked by page and indexed — that is how questions about
-them get answered. The same material answers a bigger question: *am I ready?*
+them get answered. The same material answers a bigger question: _am I ready?_
 
 - **Material, not memory.** Questions are built from the chunks of the actual files
   for that course, fetched by metadata rather than by similarity — revising means
@@ -296,7 +302,7 @@ them get answered. The same material answers a bigger question: *am I ready?*
 ### Replying to a specific alert
 
 WhatsApp's Reply quotes a message by id. A student scrolling back to Tuesday's alert
-and replying to it means *that* one — which is precisely the case the 45-minute
+and replying to it means _that_ one — which is precisely the case the 45-minute
 context cannot cover, because the whole point of using Reply is that it is not the
 current subject.
 
@@ -339,7 +345,7 @@ rejected.
 **A course code is not a subject.** "CVE 575" is a local invention: it means nothing
 outside the university that issued it, and a web search on it matches MATH 575 just as
 happily — which is what a student asking for transportation engineering material got.
-So the search is built from the course *title* and the student's own words, with the
+So the search is built from the course _title_ and the student's own words, with the
 code dropped entirely once a title is known, and every result is checked for at least
 one word of the subject before it is offered. A Math 575 review sheet offered for a
 transportation course is not a near miss; it is the wrong subject, and the student
@@ -366,7 +372,7 @@ library of other people's documents.
 
 It never sees the student's question, never contributes a quiz question, and never
 supplies a fact Peermate repeats as its own. What comes back is a link, printed under
-*Going deeper (from the web, not from your files)*, for the student to decide about.
+_Going deeper (from the web, not from your files)_, for the student to decide about.
 
 That boundary is the whole design. A student revising has to know which lines came from
 their lecturer's notes and which came from a stranger's blog, because only one of those
@@ -383,7 +389,7 @@ thing from a lecturer posting one in a group, and it is stored separately.
 takes, it may be a draft, and its dates come from OCR of somebody's handwriting.
 Treating it as an announcement would make one student's misread photograph into the
 whole class's exam date — so it lands in `schedules`, keyed to them, and never reaches
-another student. A timetable posted in a *group* still goes the announcement route,
+another student. A timetable posted in a _group_ still goes the announcement route,
 because somebody said it to everybody.
 
 **The picture is classified before anything is read out of it** — course list, exam
@@ -450,7 +456,7 @@ silently rather than visibly.
 `courses` holds the code, title, lecturer and any aliases, assembled from whatever
 arrives — titles from a photographed timetable, lecturers from a group's trusted
 senders. Resolution only ever returns a course the student actually takes, and a title
-match must share a *phrase* rather than a single word: "analysis" appears in three
+match must share a _phrase_ rather than a single word: "analysis" appears in three
 course titles, "structural analysis" in one. Two courses matching equally well is a
 real ambiguity, and Peermate asks rather than picking.
 
@@ -469,7 +475,7 @@ Such a group carries two kinds of message, and they are not the same kind of fac
   it would be from a course group — only CVE 575 students hear it.
 - **About everybody.** "No lectures on Friday", "resumption is Monday", "the fees
   deadline is the 15th". These have no course to file under, which is
-  *indistinguishable from a course that could not be worked out* unless the extractor
+  _indistinguishable from a course that could not be worked out_ unless the extractor
   says which it meant. So every announcement carries a `scope`, decided at extraction
   time. A department notice is delivered rather than held for triage, and labelled as
   department-wide so it does not read as a course announcement with its course
@@ -508,7 +514,7 @@ not ask for. The list comes first and the files follow a yes.
 - **One socket, one bot number.** There is no per-instance billing to economise on any more, so the constraint is operational rather than financial: one linked device, one process, one socket. Two processes against the same auth state corrupt the session and force a re-pair.
 - **There is no official migration path.** Meta's WhatsApp [Groups API](https://developers.facebook.com/documentation/business-messaging/whatsapp/groups) caps a group at **8 participants**, covers only groups the business itself creates, and requires an Official Business Account — so it cannot host a 120-person course group. Unofficial access is not a stepping stone to a sanctioned one; at scale the ban risk on the bot number is managed, not escaped.
 - **Possible later: split the directions.** Read groups through Baileys, send DMs through Meta's Cloud API on a second number, so a ban costs ingestion rather than every student's conversation. The cost is real — outside a student-opened 24-hour window every proactive DM becomes a paid, pre-approved template, which is most of them under the instant-alert policy. All outbound goes through `NotifierService`, so this stays a one-class change — `CloudApiService` keeps that send path wired and unused; it was ported from Meta's Jasper's Market sample, which has since been removed from this repo.
-- **One person, one address.** WhatsApp reaches a single handset two ways — by phone number and by LID — and Signal keeps a *separate ratchet per address*. Alternating between them desynchronises both, and the handset then shows "Waiting for this message. This may take a while." on everything Peermate sends; the plaintext is unrecoverable. So a person is addressed by the identity their own messages arrive on, resolved in one place (`operatorJid`). `ADMIN_PHONE` may list several spellings of the same operator — that decides who *may* command Peermate — but only one of them is ever written to.
+- **One person, one address.** WhatsApp reaches a single handset two ways — by phone number and by LID — and Signal keeps a _separate ratchet per address_. Alternating between them desynchronises both, and the handset then shows "Waiting for this message. This may take a while." on everything Peermate sends; the plaintext is unrecoverable. So a person is addressed by the identity their own messages arrive on, resolved in one place (`operatorJid`). `ADMIN_PHONE` may list several spellings of the same operator — that decides who _may_ command Peermate — but only one of them is ever written to.
 - **Sponsors:** OpenAI plus at most one more, used genuinely. Five shallow integrations score worse than one real one.
 
 ## 9. Demo setup
@@ -548,8 +554,8 @@ No live pitch. Judging is global and video-based, scored 1–5 on four criteria 
 
 ## Registration
 
-1. Amina messages the Peermate number: *"hi"*.
-2. Peermate asks which courses she takes. She replies *"CSC 301, STA 202"*.
+1. Amina messages the Peermate number: _"hi"_.
+2. Peermate asks which courses she takes. She replies _"CSC 301, STA 202"_.
 3. She is registered. She immediately has access to everything Peermate has already stored for those courses — past announcements and the file library.
 
 ## Primary flow — the announcement she'd have missed
@@ -557,35 +563,36 @@ No live pitch. Judging is global and video-based, scored 1–5 on four criteria 
 4. Dr. Bello sends a 90-second voice note in `CSC 301`. Forty messages of noise follow. Amina opens none of it.
 5. Peermate transcribes it, extracts `CSC 301 test · Friday 10:00 · LG7`, stores it with the source message ID and sender, and DMs her within the minute:
    > **CSC 301 test — Friday 10am, LG7**
-   > *Dr. Bello, voice note, Tue 4:12pm*
+   > _Dr. Bello, voice note, Tue 4:12pm_
 6. She never scrolled. She never played the voice note.
 
 ## Daily digest
 
 7. **07:00.** Everything across her selected courses in one message:
    > 3 things today
-   > • CSC 301 test — Friday 10am, LG7 *(Dr. Bello, voice note, Tue 4:12pm)*
+   > • CSC 301 test — Friday 10am, LG7 _(Dr. Bello, voice note, Tue 4:12pm)_
    > • STA 202 assignment due tonight 11:59pm
    > • Dept meeting moved to Thursday
 
 ## Reactive — cited Q&A
 
-8. She DMs: *"where is the CSC 301 test again?"*
-9. Peermate: *LG7, Friday 10am — from Dr. Bello's voice note, Tuesday 4:12pm.*
+8. She DMs: _"where is the CSC 301 test again?"_
+9. Peermate: _LG7, Friday 10am — from Dr. Bello's voice note, Tuesday 4:12pm._
 
 ## Resources
 
-10. She DMs: *"CSC 301 resources"*
+10. She DMs: _"CSC 301 resources"_
 11. Peermate replies with the shelf and **sends the files**:
+
     > CSC 301 — 4 items
-    > • Lecture slides wk3 *(Dr. Bello, 22 Aug)*
-    > • 2023 past questions *(Chidi, 28 Aug)*
-    > • Assignment brief — due Thursday *(Chidi, 28 Aug)*
-    > • Course outline *(Dr. Bello, 12 Aug)*
+    > • Lecture slides wk3 _(Dr. Bello, 22 Aug)_
+    > • 2023 past questions _(Chidi, 28 Aug)_
+    > • Assignment brief — due Thursday _(Chidi, 28 Aug)_
+    > • Course outline _(Dr. Bello, 12 Aug)_
 
     …followed by the actual PDFs as WhatsApp attachments.
 
-12. **Better, unprompted:** the deadline warning arrives *with the brief already attached.* *"STA 202 assignment due tonight 11:59pm — here's the brief."* She never asked for the file.
+12. **Better, unprompted:** the deadline warning arrives _with the brief already attached._ _"STA 202 assignment due tonight 11:59pm — here's the brief."_ She never asked for the file.
 
 ## Conflict
 
@@ -594,17 +601,17 @@ No live pitch. Judging is global and video-based, scored 1–5 on four criteria 
 
 ## Failure paths
 
-| Failure | Behaviour |
-|---|---|
-| Duplicate delivery on reconnect | Skip on the unique index; do not reprocess or notify |
-| Transcription fails | Keep the audio in MinIO, mark the message unprocessed; digest continues |
-| Extraction low confidence | Surface as "possible" with source; never assert |
-| Model returns `kind: noise` on a real announcement | Lost silently — the known cost of one-call extraction. Spot-check against the demo set. |
-| Unsupported or oversized media | Retain source metadata, skip embedding, and explain the limitation if a student requests it |
-| Outbound send fails | Log the failure; retry once without creating a duplicate notification |
-| No announcements today | Say so plainly; don't invent a digest |
-| Socket drops | Baileys reconnects on its own, and WhatsApp usually re-delivers what was missed — usually, so do not lean on it during the demo. The unique index makes the re-delivery harmless. |
-| Logged out (`DisconnectReason.loggedOut`) | Auth state is dead and no reconnect will fix it; retrying loops forever. Stop, alert, re-pair by hand. |
-| Unhandled error mid-ingest | Caught per message and logged. It must never propagate into the `messages.upsert` handler, which would take ingestion down with it |
-| Session drops mid-demo | Prerecorded backup video |
-| Store empty on restart | Seeded Mongo + MinIO prevents this — test a cold restart before recording |
+| Failure                                            | Behaviour                                                                                                                                                                         |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Duplicate delivery on reconnect                    | Skip on the unique index; do not reprocess or notify                                                                                                                              |
+| Transcription fails                                | Keep the audio in MinIO, mark the message unprocessed; digest continues                                                                                                           |
+| Extraction low confidence                          | Surface as "possible" with source; never assert                                                                                                                                   |
+| Model returns `kind: noise` on a real announcement | Lost silently — the known cost of one-call extraction. Spot-check against the demo set.                                                                                           |
+| Unsupported or oversized media                     | Retain source metadata, skip embedding, and explain the limitation if a student requests it                                                                                       |
+| Outbound send fails                                | Log the failure; retry once without creating a duplicate notification                                                                                                             |
+| No announcements today                             | Say so plainly; don't invent a digest                                                                                                                                             |
+| Socket drops                                       | Baileys reconnects on its own, and WhatsApp usually re-delivers what was missed — usually, so do not lean on it during the demo. The unique index makes the re-delivery harmless. |
+| Logged out (`DisconnectReason.loggedOut`)          | Auth state is dead and no reconnect will fix it; retrying loops forever. Stop, alert, re-pair by hand.                                                                            |
+| Unhandled error mid-ingest                         | Caught per message and logged. It must never propagate into the `messages.upsert` handler, which would take ingestion down with it                                                |
+| Session drops mid-demo                             | Prerecorded backup video                                                                                                                                                          |
+| Store empty on restart                             | Seeded Mongo + MinIO prevents this — test a cold restart before recording                                                                                                         |

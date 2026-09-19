@@ -1,6 +1,5 @@
 import type { User } from '../models/index.js'
 import { groupRepository } from '../repositories/index.js'
-import { membershipService } from './membership.service.js'
 import { courseDisplay } from '../utils/courses.js'
 import { formatTime12 } from '../utils/dates.js'
 
@@ -107,17 +106,10 @@ I can only do this for a course whose files I actually have. If nobody has poste
 async function listening({ user }: Context): Promise<string> {
   // Their own rooms and nothing else. `approved()` is every group on the deployment,
   // so answering from it named another university's cohort to them.
-  const [live, waiting] = await Promise.all([
-    groupRepository.forStudent(user.groupJids),
-    membershipService.claimable(user),
-  ])
+  const live = await groupRepository.forStudent(user.groupJids)
 
-  // A student cannot be shown the queue, so they are told how to read its absence:
-  // "not listed" means either nobody added me or nobody has approved it yet.
-  const unseen = `\n\n_A group you added that isn't listed here is waiting on you to say which course it is._`
-
-  if (live.length === 0 && waiting.length === 0) {
-    return `I'm not reading any group yet. Add me to a course group and I'll ask about it — I read nothing until it's approved.${unseen}`
+  if (live.length === 0) {
+    return `I'm not connected to any group you can access yet. You can still send or forward messages, files and voice notes here — groups are optional.`
   }
 
   const reading = live.length
@@ -128,32 +120,7 @@ async function listening({ user }: Context): Promise<string> {
         .join('\n')}`
     : `I'm not reading any group yet.`
 
-  if (waiting.length === 0) {
-    // Their own coverage is the part they actually care about: a course with no group
-    // behind it is a course they will never hear about.
-    const covered = new Set(live.map((group) => group.defaultCourseKey).filter(Boolean))
-    const missing = user.courseKeys.filter((key) => !covered.has(key))
-    // A group with no course set can still carry any of them, so "I won't hear
-    // anything from those" would be false — it just cannot be promised in advance.
-    const open = live.some((group) => !group.defaultCourseKey)
-    const gap = missing.length
-      ? open
-        ? `\n\n No group is pinned to ${missing.map(courseDisplay).join(', ')}, but I work out the course per message in the ones above — so I'll pick them up if they come up there.`
-        : `\n\n⚠️ Nothing connected yet for ${missing.map(courseDisplay).join(', ')} — I won't hear anything from those.`
-      : ''
-    return `${reading}${gap}${unseen}`
-  }
-
-  const pendingLines = waiting
-    .map((group) => {
-      const suggested = group.proposedCourse ?? group.defaultCourse
-      return `• ${group.name ?? group.chatJid}${suggested ? ` — someone says it's ${suggested}` : ''}`
-    })
-    .join('\n')
-
-  const next = `\n\nTell me which course ${waiting.length === 1 ? 'it is' : 'they are'} for and I'll start reading.`
-
-  return `${reading}\n\n*Waiting on you:*\n${pendingLines}${next}`
+  return `${reading}\n\nYou can ask about anything shared after I joined. A course label helps organize it but is not required.`
 }
 
 /**
@@ -163,24 +130,10 @@ async function listening({ user }: Context): Promise<string> {
  * it. There is no operator to wait for and no queue belonging to somebody else.
  */
 async function approving({ user }: Context): Promise<string> {
-  const waiting = await membershipService.claimable(user)
+  void user
+  return `Add me to a group and I begin learning new messages immediately. I post one disclosure in the room and confirm privately with whoever added me.
 
-  if (waiting.length === 0) {
-    return `Add me to your course group and I'll ask you which course it is. Say the code and I start reading — nobody else has to approve it.
-
-I read nothing in a group until then, and I never post in one.`
-  }
-
-  const lines = waiting.map((group) => {
-    const suggested = group.proposedCourse ?? group.defaultCourse
-    return suggested
-      ? `• *${group.name ?? group.chatJid}* — looks like *${suggested}*`
-      : `• *${group.name ?? group.chatJid}* — send the course code, like *CVE 575*`
-  })
-
-  return `Right here, in this chat — not in the group. I don't read a group until you tell me what it is, and I never post in one.
-
-${lines.join('\n')}`
+No approval or course code is required. Current members can ask me privately about what was shared after I joined.`
 }
 
 function courses({ user }: Context): string {
@@ -224,9 +177,9 @@ Nothing is lost while I'm quiet: it all turns up in your next digest.`
 }
 
 function general(_context: Context): string {
-  return `I sit in your course groups and DM you what matters — test dates, venue changes, deadlines, the voice notes nobody plays. I never post in a group.
+  return `I'm your personal memory and action assistant. Send or forward messages, files and voice notes; I'll keep them searchable, help organize them and remind you about dates.
 
-Ask me things like *"when is the CSC 301 test?"* or *"CSC 301 resources"*, and send *help* for the full list.`
+Groups are optional connected sources. Ask things like *"what did Tobi say about the venue?"*, *"find last week's voice note"* or *"what deadlines do I have?"*.`
 }
 
 export const guidanceService = new GuidanceService()

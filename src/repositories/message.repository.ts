@@ -26,6 +26,87 @@ export class MessageRepository extends BaseRepository<Message> {
     return this.collection.findOne({ waMessageId } as never) as Promise<Message | null>
   }
 
+  async privateFor(ownerPhone: string): Promise<Message[]> {
+    return this.collection
+      .find({ fromGroup: false, senderPhone: ownerPhone } as never)
+      .toArray() as Promise<Message[]>
+  }
+
+  async privateMessages(limit = 500): Promise<Message[]> {
+    return this.collection
+      .find({
+        fromGroup: false,
+        processingStatus: { $in: ['done', 'skipped'] },
+        $or: [{ privateIndexedAt: { $exists: false } }, { privateIndexedAt: null }],
+      } as never)
+      .sort({ timestamp: 1 })
+      .limit(limit)
+      .toArray() as Promise<Message[]>
+  }
+
+  async markPrivateIndexed(waMessageId: string): Promise<void> {
+    await this.collection.updateOne({ waMessageId } as never, {
+      $set: { privateIndexedAt: new Date() } as never,
+    })
+  }
+
+  async deletePrivate(ownerPhone: string): Promise<number> {
+    return (
+      await this.collection.deleteMany({ fromGroup: false, senderPhone: ownerPhone } as never)
+    ).deletedCount
+  }
+
+  /**
+   * Exact, chronological recovery alongside semantic retrieval.
+   *
+   * The namespace is built here rather than trusted to the model: shared messages
+   * must come from a verified group, while private messages must belong to this user.
+   */
+  async accessible(
+    ownerPhone: string,
+    groupJids: string[],
+    filters: {
+      words?: string | null
+      sender?: string | null
+      chatJid?: string | null
+      type?: Message['type'] | null
+      since?: Date | null
+      until?: Date | null
+      limit?: number
+    } = {},
+  ): Promise<Message[]> {
+    const namespaces: Record<string, unknown>[] = [{ fromGroup: false, senderPhone: ownerPhone }]
+    const allowedGroups = filters.chatJid
+      ? groupJids.includes(filters.chatJid)
+        ? [filters.chatJid]
+        : []
+      : groupJids
+    if (allowedGroups.length > 0)
+      namespaces.push({ fromGroup: true, chatJid: { $in: allowedGroups } })
+
+    const query: Record<string, unknown> = { $or: namespaces }
+    if (filters.type) query['type'] = filters.type
+    if (filters.sender) query['senderName'] = { $regex: escapeRegex(filters.sender), $options: 'i' }
+    if (filters.words) {
+      const contains = { $regex: escapeRegex(filters.words), $options: 'i' }
+      query['$and'] = [
+        { $or: [{ text: contains }, { caption: contains }, { transcript: contains }] },
+      ]
+    }
+    if (filters.since || filters.until) {
+      query['timestamp'] = {
+        ...(filters.since ? { $gte: filters.since } : {}),
+        ...(filters.until ? { $lte: filters.until } : {}),
+      }
+    }
+
+    return this.collection
+      .find(query as never)
+      .sort({ timestamp: -1 })
+      .limit(Math.min(Math.max(filters.limit ?? 20, 1), 50))
+      .toArray() as Promise<Message[]>
+  }
+
   async setStatus(
     waMessageId: string,
     processingStatus: ProcessingStatus,
@@ -101,3 +182,7 @@ export class MessageRepository extends BaseRepository<Message> {
 }
 
 export const messageRepository = new MessageRepository()
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}

@@ -19,17 +19,20 @@ export class ExtractionRepository extends BaseRepository<Extraction> {
   async forCourses(courseKeys: string[], since: Date, groupJids: string[]): Promise<Extraction[]> {
     if (groupJids.length === 0) return []
 
-    return this.collection
-      .find({
+    const query: Record<string, unknown> = {
         chatJid: { $in: groupJids },
-        // A department notice has no course, so filtering by course alone would drop
-        // it from every digest. The group it came from is what narrows it.
-        $or: [{ courseKey: { $in: courseKeys } }, { scope: 'department' }],
         extractedAt: { $gte: since },
         // A row that was corrected must not reach a digest or an answer, or the
         // student is told a venue that moved two days ago.
         supersededBy: null,
-      } as never)
+      }
+    // No course preferences means "everything in my verified groups", not nothing.
+    if (courseKeys.length > 0) {
+      query['$or'] = [{ courseKey: { $in: courseKeys } }, { scope: 'department' }]
+    }
+
+    return this.collection
+      .find(query as never)
       .sort({ extractedAt: -1 })
       .toArray() as Promise<Extraction[]>
   }

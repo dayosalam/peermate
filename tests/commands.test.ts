@@ -5,6 +5,7 @@ const saved: User[] = []
 let pendingAction: 'confirm_wipe' | 'awaiting_name' | null = null
 
 const cleared: string[] = []
+const deleted: string[] = []
 
 vi.mock('../src/repositories/index.js', () => ({
   userRepository: {
@@ -12,6 +13,7 @@ vi.mock('../src/repositories/index.js', () => ({
       saved.push(user)
     }),
     findByPhone: vi.fn(async () => saved.at(-1) ?? null),
+    delete: vi.fn(async (phone: string) => deleted.push(`user:${phone}`)),
   },
   groupRepository: { approved: vi.fn(async () => []), forStudent: vi.fn(async () => []) },
   scheduleRepository: { clear: vi.fn(async (phone: string) => cleared.push(`schedules:${phone}`)) },
@@ -25,6 +27,13 @@ vi.mock('../src/repositories/index.js', () => ({
   outboxRepository: { clear: vi.fn(async (phone: string) => cleared.push(`outbox:${phone}`)) },
   renderJobRepository: {
     clear: vi.fn(async (phone: string) => cleared.push(`render_jobs:${phone}`)),
+  },
+  messageRepository: {
+    privateFor: vi.fn(async () => []),
+    deletePrivate: vi.fn(async (phone: string) => deleted.push(`messages:${phone}`)),
+  },
+  memoryCollectionRepository: {
+    clear: vi.fn(async (phone: string) => deleted.push(`collections:${phone}`)),
   },
 }))
 
@@ -43,6 +52,36 @@ vi.mock('../src/services/conversation.service.js', () => ({
 /** Breaks the import chain into Baileys; nothing here sends anything. */
 vi.mock('../src/services/notifier.service.js', () => ({
   notifierService: { sendText: vi.fn() },
+}))
+
+vi.mock('../src/services/indexing.service.js', () => ({
+  indexingService: {
+    deletePrivate: vi.fn(async (phone: string) => deleted.push(`knowledge:${phone}`)),
+  },
+}))
+
+vi.mock('../src/services/deletion.service.js', () => ({
+  deletionService: {
+    request: vi.fn(async (user: User) => {
+      const phone = user.phone
+      deleted.push(
+        `user:${phone}`,
+        `messages:${phone}`,
+        `knowledge:${phone}`,
+        `collections:${phone}`,
+      )
+      cleared.push(
+        `schedules:${phone}`,
+        `attempts:${phone}`,
+        `assignment_states:${phone}`,
+        `notifications:${phone}`,
+        `outbox:${phone}`,
+        `render_jobs:${phone}`,
+      )
+      pendingAction = null
+      return true
+    }),
+  },
 }))
 
 const { studentCommandsService } = await import('../src/services/student-commands.service.js')
@@ -85,9 +124,20 @@ const last = (): User => saved.at(-1)!
 beforeEach(() => {
   saved.length = 0
   pendingAction = null
+  deleted.length = 0
 })
 
 describe('being asked to be quiet', () => {
+  it('turns automatic reminders off and back on without deleting dates', async () => {
+    expect(await command(student(), 'turn automatic reminders off')).toMatch(
+      /still remember dates/i,
+    )
+    expect(last().automaticReminders).toBe(false)
+
+    expect(await command(last(), 'turn reminders on')).toMatch(/reminders are on/i)
+    expect(last().automaticReminders).toBe(true)
+  })
+
   it('pauses with no end when they name none', async () => {
     await command(student(), 'stop messaging me')
     expect(last().paused).toBe(true)
@@ -142,8 +192,7 @@ describe('destructive commands', () => {
   it('wipes only after an explicit yes', async () => {
     await command(student(), 'delete my data')
     await command(student(), 'yes')
-    expect(last().courseKeys).toEqual([])
-    expect(last().onboardingState).toBe('awaiting_name')
+    expect(deleted).toContain('user:2348100000000')
   })
 
   /**
@@ -176,12 +225,12 @@ describe('destructive commands', () => {
   })
 
   /** The tenancy boundary travels with the number, so it cannot outlive the account. */
-  it('clears the groups their retrieval was scoped to', async () => {
+  it('deletes the account that carried their retrieval scope', async () => {
     await command(student(), 'delete my data')
     await command(student(), 'yes')
-    expect(last().groupJids).toEqual([])
-    expect(last().quietFrom).toBeNull()
-    expect(last().alertLevel).toBe('all')
+    expect(deleted).toContain('user:2348100000000')
+    expect(deleted).toContain('messages:2348100000000')
+    expect(deleted).toContain('knowledge:2348100000000')
   })
 
   it('leaves everything alone on anything else', async () => {

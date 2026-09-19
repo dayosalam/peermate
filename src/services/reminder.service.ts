@@ -77,6 +77,8 @@ export class ReminderService {
   }
 
   async runFor(student: User, now = new Date()): Promise<number> {
+    if (student.automaticReminders === false) return 0
+
     const due = [
       ...(await this.fromSchedule(student, now)),
       ...(await this.fromAnnouncements(student, now)),
@@ -225,8 +227,6 @@ export class ReminderService {
 
   /** What a group announced, which is where a venue change or a moved test comes from. */
   private async fromAnnouncements(student: User, now: Date): Promise<Due[]> {
-    if (student.courseKeys.length === 0) return []
-
     const horizon = new Date(now.getTime() - 30 * 24 * 60 * MINUTE_MS)
     const items = await extractionRepository.forCourses(
       student.courseKeys,

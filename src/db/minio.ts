@@ -42,3 +42,7 @@ export async function getMedia(key: string): Promise<Buffer> {
   for await (const chunk of stream) chunks.push(chunk as Buffer)
   return Buffer.concat(chunks)
 }
+
+export async function deleteMedia(key: string): Promise<void> {
+  await getMinio().removeObject(config.minio.bucket, key)
+}

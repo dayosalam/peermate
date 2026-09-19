@@ -53,10 +53,8 @@ export class MembershipService {
 
     for (const group of groups) {
       const carries = group.defaultCourseKey
-      // A departmental group carries no course of its own, so no course points at it.
-      // Membership is the whole of its claim, which is exactly what is checked here.
-      const relevant = carries ? user.courseKeys.includes(carries) : true
-      if (!relevant) continue
+      // A current member can retrieve their room whether or not they registered a
+      // matching course. Course is organization metadata, not an access credential.
 
       const belongs = await this.belongs(user, group)
       if (belongs === true) {

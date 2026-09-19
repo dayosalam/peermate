@@ -129,11 +129,11 @@ describe('a course code is a claim, not an entitlement', () => {
     expect(membership.uncovered).toEqual(['CVE575'])
   })
 
-  it('never offers a group for a course they do not take', async () => {
+  it('grants a verified group even when its course is not in their preferences', async () => {
     groups = [group({ chatJid: '999@g.us', defaultCourseKey: 'BIO101' })]
     participants['999@g.us'] = ['2348012345678@s.whatsapp.net']
 
-    expect((await membershipService.subscribe(amina)).joined).toEqual([])
+    expect((await membershipService.subscribe(amina)).joined).toEqual(['999@g.us'])
   })
 
   /**

@@ -9,9 +9,9 @@ import { membershipService } from './membership.service.js'
 
 const GREETING = `Hi! I'm Peermate 👋
 
-I sit in your course group chats and listen for the announcements that get buried — test dates, venue changes, deadlines, even the voice notes nobody plays. Then I message you here with just the part that matters.
+I can remember messages, files and voice notes, organize what matters, answer from what you've shared, and remind you about it later.
 
-First — what should I call you? (Send *skip* if you'd rather not say.)`
+Send or forward me anything. Courses and groups are optional — you can start right here.`
 
 const ASK_COURSES = (name: string): string => `Nice to meet you, ${name} 🙌
 
@@ -92,6 +92,20 @@ export class OnboardingService {
 
     if (!user) return this.start(message, phone, text)
 
+    // Older accounts may still be parked in the prototype's mandatory onboarding.
+    // Registration is no longer a gate: migrate them on their next message and let
+    // DmService handle what they actually came to ask.
+    if (user.onboardingState !== 'registered') {
+      await userRepository.upsert({
+        ...user,
+        displayName: user.displayName ?? this.readName(user.name ?? ''),
+        onboardingState: 'registered',
+        registeredAt: user.registeredAt ?? new Date(),
+        automaticReminders: user.automaticReminders ?? true,
+      })
+      return GREETING
+    }
+
     // Only while onboarding. A registered student typing "cancel" means cancel
     // whatever we were just doing — reading it as "start over" would wipe their
     // name, their courses and their settings without ever asking.
@@ -128,13 +142,13 @@ export class OnboardingService {
       jid: message.chatJid,
       lid: null,
       name: message.senderName,
-      displayName: null,
-      courseKeys: [],
+      displayName: this.readName(message.senderName ?? ''),
+      courseKeys: looksLikeQuestion(text) ? [] : parseCourseList(text),
       groupJids: [],
       // They wrote to this number, so this is the number that answers them.
       shardId: config.whatsapp.shardId,
-      onboardingState: 'awaiting_name',
-      registeredAt: null,
+      onboardingState: 'registered',
+      registeredAt: new Date(),
       lastDigestAt: null,
       digestFormat: 'text',
       digestHour: 7,
@@ -145,22 +159,12 @@ export class OnboardingService {
       digestPaused: false,
       alertLevel: 'all',
       mutedCourseKeys: [],
-    }
-
-    // Someone who opens with "CSC 301, STA 202" has already answered a question we
-    // were two steps from asking. Take it and skip ahead — but only when it is an
-    // answer: "when is the CSC 301 test?" names a course without registering for it,
-    // and reading it as a course list enrols them and skips their name.
-    const courseKeys = looksLikeQuestion(text) ? [] : parseCourseList(text)
-    if (courseKeys.length > 0) {
-      await userRepository.upsert({ ...fresh, courseKeys, onboardingState: 'awaiting_digest' })
-      logger.info({ phone, courseKeys }, 'courses given up front')
-      return `${this.confirmCourses(courseKeys)}\n\n${ASK_DIGEST}`
+      automaticReminders: true,
     }
 
     await userRepository.upsert(fresh)
-    logger.info({ phone }, 'new student, asking for name')
-    return looksLikeQuestion(text) ? `${this.heard(text)}\n\n${GREETING}` : GREETING
+    logger.info({ phone }, 'new user registered without a setup gate')
+    return GREETING
   }
 
   /**

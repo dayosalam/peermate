@@ -4,7 +4,9 @@ Peermate is a personal AI agent that lives in university course group chats and 
 
 Students receive timely alerts and personalized daily digests with citations showing who shared each announcement and when. They can ask follow-up questions, retrieve course files, manage their courses and notification preferences, upload personal timetables, receive reminders, and generate revision guides or quizzes from materials shared in their groups. Peermate also uses Exa to find clearly labelled external reading and additional study materials without mixing web content with official group-chat information.
 
-By turning noisy, fragmented group conversations into one reliable private assistant, Peermate helps students avoid missed announcements, find buried resources and prepare more effectively without constantly scrolling through every class group. Tunes
+By turning noisy, fragmented group conversations into one reliable private assistant, Peermate helps students avoid missed announcements, find buried resources and prepare more effectively without constantly scrolling through every class group.
+
+Private messages are part of each student's own searchable memory. Group history is available only after membership has been verified, remains available when that student leaves, and can be explicitly forgotten. Students can keep every update from a group, limit it to deadlines, pause proactive messages while retaining search, or delete their account and private data. Named collections let them organize useful source messages without copying or detaching them from their provenance.
 
 ## Running it
 
@@ -62,13 +64,37 @@ credential: it is gitignored, excluded from the build context, and mounted at
 no token that substitutes for a linked device.
 
 **One process, always.** Two running against one session desynchronise the Signal
-ratchet, and every student sees *"Waiting for this message"* with no way back. That
+ratchet, and every student sees _"Waiting for this message"_ with no way back. That
 rules out rolling deploys: use `stop-first` (Compose), `Recreate` (Kubernetes) or
 `--strategy immediate` (Fly), and never scale past one replica.
 
-
-
 ## Operating it
+
+### Privacy and retention
+
+Peermate announces itself once when it joins a group and begins retaining new content
+only after that point. Removing the bot stops new ingestion. A student's private DMs,
+private media, vectors, schedules, collections and preferences remain until they send
+`forget me`; that cleanup is checkpointed and resumes after a restart if a dependency
+was unavailable. Shared group sources are not deleted by one student's account deletion
+because other verified members may rely on them. A student can instead ask Peermate to
+forget one group, which removes only that student's access to its archive.
+
+Conversation transcripts expire after 30 days. Shared group-source retention is
+operator-controlled for now and must be stated to a group before real deployment.
+
+### Product acceptance check
+
+Before releasing a change, validate one staged group and two test students end to end:
+
+1. Add Peermate and verify exactly one room disclosure and one private confirmation.
+2. Send text, voice, image, PDF and DOCX sources; retrieve each naturally and request
+   the original.
+3. Confirm neither student can retrieve the other's private DM.
+4. Leave and rejoin the group; confirm prior authorized history remains available.
+5. Exercise all, deadlines-only, paused and forget modes.
+6. Restart during an account deletion and verify cleanup resumes without a later DM.
+7. Run `npm run eval` and require zero cross-group leaks and followed injections.
 
 ### Tenancy backfill — automatic, on every boot
 
@@ -82,7 +108,7 @@ It is idempotent — it skips anyone already scoped — so the cost of every boo
 the first is two reads and no writes. To re-run it by hand, after resolving a group it
 could not place:
 
-```bash
+````bash
 npm run backfill-tenancy
 ``` It reports what it could not resolve
 rather than guessing — a course carried by two groups is exactly the cross-institution
@@ -111,7 +137,7 @@ npm run migrate-to-atlas -- --backfill    # copy every chunk across
 SEARCH_BACKEND=dual                       # write both, still read Chroma
 npm run migrate-to-atlas -- --compare <group-jid> <COURSEKEY>
 SEARCH_BACKEND=atlas                      # read Atlas; Chroma can go
-```
+````
 
 Each step is reversible until the last, and the last is one environment variable.
 

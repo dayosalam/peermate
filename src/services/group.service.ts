@@ -4,7 +4,6 @@ import type { Authority, Group, User } from '../models/index.js'
 import { groupRepository, pendingRepository, userRepository } from '../repositories/index.js'
 import { courseDisplay, courseKey, parseCourseList } from '../utils/courses.js'
 import { jidToIdentity, jidToPhone, samePhone } from '../whatsapp/jid.js'
-import { conversationService } from './conversation.service.js'
 import { notifierService } from './notifier.service.js'
 
 export interface GroupContext {
@@ -15,15 +14,12 @@ export interface GroupContext {
 }
 
 /**
- * Being added to a group is not permission to read it.
- *
- * Anybody can add this number to any group — a private chat, a hostel group, a
- * family thread — and until tonight Peermate would transcribe, embed and store
- * everything said there. A group now ingests nothing until the operator approves
- * it, which is what PRD §7 always claimed was true.
+ * A group is a source, not a registration gate. Joining activates learning from that
+ * point onward and Peermate discloses that once in the room. Access to what it learns
+ * is still membership-scoped: being able to name a group never grants its archive.
  */
 export class GroupService {
-  /** Records the group as pending and asks the operator about it. Never ingests. */
+  /** Records and activates a group, then discloses the connection once. */
   async register(chatJid: string, context: GroupContext): Promise<Group> {
     const existing = await groupRepository.findByJid(chatJid)
     if (existing) {
@@ -45,9 +41,14 @@ export class GroupService {
         patch.shardId = config.whatsapp.shardId
       }
 
+      if (existing.status === 'pending') {
+        patch.status = 'approved'
+        patch.approvedAt = new Date()
+      }
       if (Object.keys(patch).length === 0) return existing
       const updated = { ...existing, ...patch }
       await groupRepository.upsert(updated)
+      if (existing.status === 'pending') await this.notifyConnected(updated)
       return updated
     }
 
@@ -57,7 +58,7 @@ export class GroupService {
       name: context.subject,
       defaultCourse: guess,
       defaultCourseKey: courseKey(guess),
-      status: 'pending',
+      status: 'approved',
       // The socket that saw this group is the only one that can read it.
       shardId: config.whatsapp.shardId,
       addedBy: context.addedBy ?? null,
@@ -68,22 +69,11 @@ export class GroupService {
       proposedBy: null,
       approvedBy: null,
       joinedAt: new Date(),
-      approvedAt: null,
+      approvedAt: new Date(),
     }
     await groupRepository.upsert(group)
-    logger.info({ chatJid, subject: context.subject, guess }, 'group pending approval')
-
-    // Whoever added Peermate decides, and nobody else is told. Peermate has a
-    // relationship with each student, not a moderator sitting above all of them: one
-    // student's group is their own business, and a notice about a stranger's cohort is
-    // something the reader can neither judge nor act on.
-    //
-    // They can only be asked if they have written to Peermate before, since it never
-    // opens a conversation with someone who has not. Otherwise the group simply waits:
-    // `membershipService.claimable` offers it to anyone in it who does.
-    if (!(await this.askAdder(group))) {
-      logger.info({ chatJid, addedBy: group.addedBy }, 'nobody to ask yet — group waits')
-    }
+    logger.info({ chatJid, subject: context.subject, guess }, 'group connected')
+    await this.notifyConnected(group)
     return group
   }
 
@@ -116,7 +106,7 @@ export class GroupService {
       await groupRepository.upsert({ ...group, status: 'revoked' })
     }
 
-    const dropped = await userRepository.dropGroupForAll(chatJid)
+    const dropped = await userRepository.archiveGroupForAll(chatJid)
     logger.info({ chatJid, students: dropped }, 'group revoked')
     return dropped
   }
@@ -133,7 +123,7 @@ export class GroupService {
       .map(jidToPhone)
       .filter((phone): phone is string => Boolean(phone))
 
-    const dropped = await userRepository.dropGroupFor(phones, participantJids, chatJid)
+    const dropped = await userRepository.archiveGroupFor(phones, participantJids, chatJid)
     if (dropped > 0) logger.info({ chatJid, students: dropped }, 'students left a group')
     return dropped
   }
@@ -261,53 +251,53 @@ export class GroupService {
    * one exception: they configured the bot, and this is the only way to ask.
    */
 
-  /**
-   * Asks whoever added Peermate what the group is for.
-   *
-   * Returns false when there is nobody to ask: no adder was recorded, or the adder has
-   * never written to Peermate. It does not open a conversation with a stranger — the
-   * operator is the only person it may message unprompted — so that case falls back.
-   *
-   * When the name suggests a course the question is a yes/no with the guess in it, and
-   * the answer is held as a pending proposal. When it does not, the question is open
-   * and the agent reads the reply like any other message.
-   */
-  private async askAdder(group: Group): Promise<boolean> {
-    if (!group.addedBy) return false
-
-    const identity = jidToIdentity(group.addedBy)
-    const adder = identity ? await userRepository.findByPhone(identity) : null
-    if (!adder || adder.onboardingState !== 'registered' || !adder.jid) return false
-
-    const where = group.name ?? 'that group'
-
-    if (group.defaultCourse) {
-      await conversationService.proposeGroup(adder.phone, {
-        chatJid: group.chatJid,
-        groupName: group.name,
-        course: group.defaultCourse,
-      })
-      await notifierService.sendText(
-        adder.jid,
-        `📎 You added me to *${where}*.
-
-Looks like *${group.defaultCourse}* from the name. Send *yes* and I'll start listening, or send the right code.
-
-I'm reading *nothing* in there until you say.`,
-      )
-    } else {
-      await notifierService.sendText(
-        adder.jid,
-        `📎 You added me to *${where}*.
-
-Which course is it for? Send the code, like *CVE 575*.
-
-I'm reading *nothing* in there until you tell me.`,
-      )
+  /** Announces collection once and gives the adder immediate private access. */
+  private async notifyConnected(group: Group): Promise<void> {
+    if (await groupRepository.claimGroupDisclosure(group.chatJid)) {
+      try {
+        await notifierService.sendText(
+          group.chatJid,
+          `👋 I'm Peermate. I've been added to help remember what is shared here — messages, files, voice notes, dates and deadlines — so current members can ask me about it privately later. I only know what is shared from now on.`,
+        )
+      } catch (error) {
+        await groupRepository.releaseGroupDisclosure(group.chatJid)
+        throw error
+      }
     }
 
-    logger.info({ chatJid: group.chatJid, phone: adder.phone }, 'asked the adder about a group')
-    return true
+    if (group.addedBy && (await groupRepository.claimAdderNotice(group.chatJid))) {
+      try {
+        const where = group.name ?? 'this group'
+        const identity = jidToIdentity(group.addedBy)
+        const adder = identity ? await userRepository.findByPhone(identity) : null
+        if (adder) await userRepository.addGroup(adder.phone, group.chatJid)
+        await notifierService.sendText(
+          adder?.jid ?? group.addedBy,
+          `📎 I'm connected to *${where}* and learning from new messages now. You can ask me privately about anything shared there; a course label is optional.`,
+        )
+        logger.info(
+          { chatJid: group.chatJid, phone: adder?.phone ?? identity },
+          'confirmed group connection',
+        )
+      } catch (error) {
+        await groupRepository.releaseAdderNotice(group.chatJid)
+        throw error
+      }
+    }
+  }
+
+  async retryDisclosures(): Promise<number> {
+    const groups = await groupRepository.undisclosed(config.whatsapp.shardId)
+    let sent = 0
+    for (const group of groups) {
+      try {
+        await this.notifyConnected(group)
+        sent += 1
+      } catch (error) {
+        logger.warn({ err: error, chatJid: group.chatJid }, 'group disclosure retry failed')
+      }
+    }
+    return sent
   }
 }
 

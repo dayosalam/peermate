@@ -75,6 +75,9 @@ function chromaMatches(meta: Record<string, unknown>, where: Record<string, unkn
   if ('$and' in where) {
     return (where['$and'] as Record<string, unknown>[]).every((c) => chromaMatches(meta, c))
   }
+  if ('$or' in where) {
+    return (where['$or'] as Record<string, unknown>[]).some((c) => chromaMatches(meta, c))
+  }
   return Object.entries(where).every(([field, condition]) => {
     const [op, operand] = Object.entries(condition as Record<string, unknown>)[0]!
     if (op === '$eq') return meta[field] === operand
@@ -283,5 +286,37 @@ describe('an unscoped student reaches nothing', () => {
       await retrievalService.search('where is the test?', stranded.courseKeys, stranded.groupJids),
     ).toEqual([])
     expect(await retrievalService.material('CVE575', stranded.groupJids)).toEqual([])
+  })
+})
+
+describe('private memory is an owner namespace', () => {
+  it('lets a student search their own DM without belonging to a group', async () => {
+    chunks = [
+      {
+        ...chunk('234@s.whatsapp.net', 'my private revision plan'),
+        meta: {
+          ...chunk('234@s.whatsapp.net', '').meta,
+          ownerPhone: '234',
+          chatJid: '234@s.whatsapp.net',
+        },
+      },
+    ]
+    const found = await retrievalService.search('revision plan', [], [], '234')
+    expect(found).toHaveLength(1)
+    expect(found[0]!.content).toContain('private revision plan')
+  })
+
+  it('never returns another student’s private DM', async () => {
+    chunks = [
+      {
+        ...chunk('235@s.whatsapp.net', 'another student secret'),
+        meta: {
+          ...chunk('235@s.whatsapp.net', '').meta,
+          ownerPhone: '235',
+          chatJid: '235@s.whatsapp.net',
+        },
+      },
+    ]
+    expect(await retrievalService.search('secret', [], [], '234')).toEqual([])
   })
 })

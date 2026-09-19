@@ -96,9 +96,6 @@ export class RetrievalService {
     ownerPhone: string | null = null,
     k = config.retrieval.candidateK,
   ): Promise<Candidate[]> {
-    // NOTE: the private namespace exists only on Atlas. Chroma was indexed with no
-    // owner dimension, so under SEARCH_BACKEND=chroma a DM upload is still reachable
-    // only through its group — one more reason the cutover is worth finishing.
     // Either namespace alone is enough to search. A student with no groups yet still
     // has their own uploads, and returning nothing to them because the shared half is
     // empty is the same silent failure the group scoping exists to prevent.
@@ -118,16 +115,28 @@ export class RetrievalService {
       return rows.map(fromKnowledge)
     }
 
+    const namespaces: Record<string, unknown>[] = []
+    if (groupJids.length > 0) {
+      const sharedFilters: Record<string, unknown>[] = [
+        { chatJid: { $in: groupJids } },
+        { timestampMs: { $gte: since } },
+      ]
+      if (courseKeys.length > 0) sharedFilters.push({ courseKey: { $in: courseKeys } })
+      namespaces.push({ $and: sharedFilters })
+    }
+    if (ownerPhone) {
+      namespaces.push({
+        $and: [{ ownerPhone: { $eq: ownerPhone } }, { timestampMs: { $gte: since } }],
+      })
+    }
+
+    const where =
+      namespaces.length === 1 ? namespaces[0]! : ({ $or: namespaces } as Record<string, unknown>)
+
     const result = await getCollection().query({
       queryEmbeddings: [embedding],
       nResults: k,
-      where: {
-        $and: [
-          { courseKey: { $in: courseKeys } },
-          { chatJid: { $in: groupJids } },
-          { timestampMs: { $gte: since } },
-        ],
-      },
+      where: where as never,
     })
 
     const documents = result.documents[0] ?? []

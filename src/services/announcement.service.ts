@@ -127,17 +127,32 @@ export class AnnouncementService {
   }
 
   private async send(extraction: Extraction, source: Message, body: string): Promise<void> {
+    const inRoom = await userRepository.inGroup(extraction.chatJid, config.whatsapp.shardId)
     const students =
       extraction.scope === 'department'
-        ? await userRepository.inGroup(extraction.chatJid, config.whatsapp.shardId)
-        : await userRepository.subscribedTo(
-            extraction.courseKey!,
-            extraction.chatJid,
-            config.whatsapp.shardId,
+        ? inRoom
+        : [
+            ...(await userRepository.subscribedTo(
+              extraction.courseKey!,
+              extraction.chatJid,
+              config.whatsapp.shardId,
+            )),
+            // No course preferences means "tell me what matters in my groups".
+            ...inRoom.filter((student) => student.courseKeys.length === 0),
+          ].filter(
+            (student, index, all) => all.findIndex((one) => one.phone === student.phone) === index,
           )
 
     for (const student of students) {
       try {
+        const groupMode =
+          student.groupPreferences?.find((one) => one.chatJid === extraction.chatJid)?.mode ?? 'all'
+        if (groupMode === 'paused') continue
+        if (
+          groupMode === 'deadlines' &&
+          !['deadline', 'test', 'assignment'].includes(extraction.eventType)
+        )
+          continue
         // Held, not dropped: the digest covers everything since it last ran, so an
         // announcement a student is not taking right now still reaches them.
         const sent = await deliveryService.send(student, body, {

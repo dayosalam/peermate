@@ -34,6 +34,7 @@ export class StudentContextService {
 
     const lines: string[] = [
       `The student is ${user.displayName ?? 'a student'}. Today is ${WEEKDAYS[weekday]} ${today.iso} in ${config.digest.timezone}.`,
+      `They can retrieve information from ${groups.length} verified group${groups.length === 1 ? '' : 's'}; course labels are optional. Automatic reminders are ${user.automaticReminders === false ? 'off' : 'on'}.`,
     ]
 
     const taking = user.courseKeys.map((key) => {
@@ -45,12 +46,7 @@ export class StudentContextService {
 
     // Naming the gap matters as much as naming the coverage: a question about an
     // uncovered course has no answer, and saying why beats an empty search result.
-    const unheard = user.courseKeys.filter((key) => !covered.has(key))
-    if (unheard.length > 0) {
-      lines.push(
-        `Peermate is in NO group for ${unheard.map(courseDisplay).join(', ')} — it cannot have heard anything about those.`,
-      )
-    }
+    void covered
 
     const todays = schedule
       .filter((entry) => entry.date === today.iso || entry.weekday === weekday)

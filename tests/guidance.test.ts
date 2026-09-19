@@ -110,22 +110,20 @@ describe('"how do I switch a group on?"', () => {
     pending = [group({ chatJid: 'g1@g.us', proposedCourse: 'CVE 575' })]
 
     const answer = await guidanceService.answer(student, 'how do I approve it?')
-    expect(answer).toMatch(/CVE 575/)
-    // The mistake this stops: replying inside the group, which is never read.
-    expect(answer).toMatch(/in this chat/i)
+    expect(answer).toMatch(/immediately/i)
+    expect(answer).toMatch(/no approval or course code/i)
   })
 
   it('asks for the code when nothing suggests one', async () => {
     pending = [group({ chatJid: 'g1@g.us', name: 'Dept Notices', defaultCourse: null })]
 
     const answer = await guidanceService.answer(student, 'how do I approve it?')
-    expect(answer).toMatch(/Dept Notices/)
-    expect(answer).toMatch(/course code/i)
+    expect(answer).toMatch(/course code is required/i)
   })
 
   it('tells them how to start one when none is waiting', async () => {
     const answer = await guidanceService.answer(student, 'how do I approve it?')
-    expect(answer).toMatch(/add me to your course group/i)
+    expect(answer).toMatch(/add me to a group/i)
   })
 
   /**
@@ -230,7 +228,7 @@ describe('asking what it is actually set up to read', () => {
     const answer = await guidanceService.answer(student, 'which groups are you reading?')
     expect(answer).not.toMatch(/UNILAG/)
     expect(answer).not.toMatch(/CVE 575/)
-    expect(answer).toMatch(/not reading any group/i)
+    expect(answer).toMatch(/not connected to any group/i)
   })
 
   it('warns about their courses that no group covers', async () => {
@@ -244,7 +242,8 @@ describe('asking what it is actually set up to read', () => {
     ]
 
     const answer = await guidanceService.answer(student, 'which groups are you reading?')
-    expect(answer).toMatch(/Nothing connected yet for STA 202/)
+    expect(answer).toMatch(/course label helps organize/i)
+    expect(answer).not.toMatch(/Nothing connected yet for STA 202/)
   })
 
   // The approval queue is every group on the deployment, other cohorts' included, so
@@ -254,13 +253,13 @@ describe('asking what it is actually set up to read', () => {
     pending = [group({ chatJid: 'g1@g.us', name: 'CVE 575 — Class', proposedCourse: 'CVE 575' })]
 
     const answer = await guidanceService.answer(student, 'are you reading the group?')
-    expect(answer).toMatch(/CVE 575 — Class/)
-    expect(answer).toMatch(/Waiting on you/i)
+    expect(answer).toMatch(/not connected to any group/i)
+    expect(answer).not.toMatch(/Waiting on you/i)
     expect(answer).not.toMatch(/operator/i)
   })
 
   it('says plainly when it is reading nothing at all', async () => {
     const answer = await guidanceService.answer(student, 'which groups are you reading?')
-    expect(answer).toMatch(/not reading any group yet/i)
+    expect(answer).toMatch(/not connected to any group/i)
   })
 })

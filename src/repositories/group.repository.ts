@@ -40,8 +40,75 @@ export class GroupRepository extends BaseRepository<Group> {
       .toArray() as Promise<Group[]>
   }
 
+  async byJids(groupJids: string[]): Promise<Group[]> {
+    if (groupJids.length === 0) return []
+    return this.collection.find({ chatJid: { $in: groupJids } } as never).toArray() as Promise<
+      Group[]
+    >
+  }
+
   async pending(): Promise<Group[]> {
     return this.collection.find({ status: 'pending' } as never).toArray() as Promise<Group[]>
+  }
+
+  /** Wins once across duplicate join events and restarts. Legacy disclosedAt counts. */
+  async claimGroupDisclosure(chatJid: string): Promise<boolean> {
+    const result = await this.collection.updateOne(
+      {
+        chatJid,
+        $and: [
+          { $or: [{ groupDisclosedAt: { $exists: false } }, { groupDisclosedAt: null }] },
+          { $or: [{ disclosedAt: { $exists: false } }, { disclosedAt: null }] },
+        ],
+      } as never,
+      { $set: { groupDisclosedAt: new Date() } as never },
+    )
+    return result.modifiedCount === 1
+  }
+
+  async releaseGroupDisclosure(chatJid: string): Promise<void> {
+    await this.collection.updateOne({ chatJid } as never, {
+      $set: { groupDisclosedAt: null } as never,
+    })
+  }
+
+  async claimAdderNotice(chatJid: string): Promise<boolean> {
+    const result = await this.collection.updateOne(
+      {
+        chatJid,
+        addedBy: { $ne: null },
+        $or: [{ adderNotifiedAt: { $exists: false } }, { adderNotifiedAt: null }],
+      } as never,
+      { $set: { adderNotifiedAt: new Date() } as never },
+    )
+    return result.modifiedCount === 1
+  }
+
+  async releaseAdderNotice(chatJid: string): Promise<void> {
+    await this.collection.updateOne({ chatJid } as never, {
+      $set: { adderNotifiedAt: null } as never,
+    })
+  }
+
+  async undisclosed(shardId: string): Promise<Group[]> {
+    return this.collection
+      .find({
+        shardId,
+        status: 'approved',
+        $or: [
+          {
+            $and: [
+              { $or: [{ groupDisclosedAt: { $exists: false } }, { groupDisclosedAt: null }] },
+              { $or: [{ disclosedAt: { $exists: false } }, { disclosedAt: null }] },
+            ],
+          },
+          {
+            addedBy: { $ne: null },
+            $or: [{ adderNotifiedAt: { $exists: false } }, { adderNotifiedAt: null }],
+          },
+        ],
+      } as never)
+      .toArray() as Promise<Group[]>
   }
 
   async all(): Promise<Group[]> {

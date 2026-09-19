@@ -118,6 +118,11 @@ export class ConversationService {
     await this.merge(phone, { courseKey })
   }
 
+  /** Makes "send/show me the original" resolve to the source just retrieved. */
+  async rememberSource(phone: string, waMessageId: string): Promise<void> {
+    await this.merge(phone, { sourceMessageId: waMessageId })
+  }
+
   /** After an announcement or an answer, so "where is it?" has an antecedent. */
   async rememberEvent(phone: string, extraction: Extraction): Promise<void> {
     await this.merge(phone, {

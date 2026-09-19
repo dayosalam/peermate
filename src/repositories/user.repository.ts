@@ -16,11 +16,14 @@ function withDefaults(user: User | null): User | null {
     alertLevel: user.alertLevel ?? 'all',
     shardId: user.shardId ?? 'default',
     mutedCourseKeys: user.mutedCourseKeys ?? [],
+    automaticReminders: user.automaticReminders ?? true,
     // Absent means unscoped, and unscoped must mean nothing rather than everything:
     // a student registered before tenancy existed would otherwise match every group.
     // `npm run backfill-tenancy` fills these in from the groups that carry their
     // courses.
     groupJids: user.groupJids ?? [],
+    historicalGroupJids: user.historicalGroupJids ?? [],
+    groupPreferences: user.groupPreferences ?? [],
   }
 }
 
@@ -120,9 +123,10 @@ export class UserRepository extends BaseRepository<User> {
    * subscriptions to other groups are untouched — losing one room is not losing the
    * product.
    */
-  async dropGroupForAll(chatJid: string): Promise<number> {
+  async archiveGroupForAll(chatJid: string): Promise<number> {
     const result = await this.collection.updateMany({ groupJids: chatJid } as never, {
       $pull: { groupJids: chatJid } as never,
+      $addToSet: { historicalGroupJids: chatJid } as never,
     })
     return result.modifiedCount
   }
@@ -134,14 +138,17 @@ export class UserRepository extends BaseRepository<User> {
    * which carry no phone number at all, so a phone-only match would quietly drop
    * nobody and leave a removed student still reading the group.
    */
-  async dropGroupFor(phones: string[], jids: string[], chatJid: string): Promise<number> {
+  async archiveGroupFor(phones: string[], jids: string[], chatJid: string): Promise<number> {
     if (phones.length === 0 && jids.length === 0) return 0
     const result = await this.collection.updateMany(
       {
         $or: [{ phone: { $in: phones } }, { jid: { $in: jids } }],
         groupJids: chatJid,
       } as never,
-      { $pull: { groupJids: chatJid } as never },
+      {
+        $pull: { groupJids: chatJid } as never,
+        $addToSet: { historicalGroupJids: chatJid } as never,
+      },
     )
     return result.modifiedCount
   }
@@ -150,7 +157,35 @@ export class UserRepository extends BaseRepository<User> {
   async addGroup(phone: string, chatJid: string): Promise<void> {
     await this.collection.updateOne({ phone } as never, {
       $addToSet: { groupJids: chatJid } as never,
+      $pull: { historicalGroupJids: chatJid } as never,
     })
+  }
+
+  async setGroupPreference(
+    phone: string,
+    chatJid: string,
+    mode: 'all' | 'deadlines' | 'paused',
+  ): Promise<void> {
+    await this.collection.updateOne({ phone } as never, {
+      $pull: { groupPreferences: { chatJid } } as never,
+    })
+    await this.collection.updateOne({ phone } as never, {
+      $push: { groupPreferences: { chatJid, mode } } as never,
+    })
+  }
+
+  async forgetGroup(phone: string, chatJid: string): Promise<void> {
+    await this.collection.updateOne({ phone } as never, {
+      $pull: {
+        groupJids: chatJid,
+        historicalGroupJids: chatJid,
+        groupPreferences: { chatJid },
+      } as never,
+    })
+  }
+
+  async delete(phone: string): Promise<void> {
+    await this.collection.deleteOne({ phone } as never)
   }
 
   async allRegistered(): Promise<User[]> {

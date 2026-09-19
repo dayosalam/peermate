@@ -69,6 +69,8 @@ const GENERAL =
 /** One pictograph or several, with nothing else in the message. */
 const EMOJI_ONLY = /^(?:[\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\u{FE0F}\u{200D}]|\s)+$/u
 const PUZZLED = /[\u{2753}\u{2754}\u{1F914}\u{1F615}\u{1F644}\u{1F928}]/u
+const SALUTATION =
+  /^(hi+|hey+|hell[o0]+|yo|sup|greetings|good\s*(morning|afternoon|evening|day)|how\s*far|wetin\s*dey|abeg)[\s!.,]*$/i
 
 /**
  * Says which part could not be trusted, rather than "I couldn't read that".
@@ -209,6 +211,11 @@ export class DmService {
       const registered = await userRepository.findByPhone(phone)
       if (registered?.onboardingState === 'registered') {
         await this.offerHeldTimetable(registered, message.chatJid)
+        // The introduction accompanies a real first request; it does not replace it.
+        // Greetings alone need no second greeting from the agent.
+        if (text && !SALUTATION.test(text.trim())) {
+          await this.processRegistered(registered, message, text)
+        }
       }
       return
     }
@@ -216,9 +223,20 @@ export class DmService {
     const stored = await userRepository.findByPhone(phone)
     if (!stored || stored.onboardingState !== 'registered') return
 
+    await this.processRegistered(stored, message, text)
+  }
+
+  private async processRegistered(stored: User, message: Message, text: string): Promise<void> {
+    const phone = stored.phone
+    // Membership, not a course list, grants access to group memory. Refresh on a DM
+    // so an existing user gains a newly connected group without another setup flow.
+    await membershipService.subscribe(stored).catch((error) => {
+      logger.warn({ err: error, phone }, 'could not refresh group membership')
+    })
+    const refreshed = (await userRepository.findByPhone(phone)) ?? stored
     // Checked here rather than swept on a timer, so a pause that ran out while the
     // process was down is still over when it comes back up.
-    const user = DeliveryService.expired(stored) ? await this.liftPause(stored) : stored
+    const user = DeliveryService.expired(refreshed) ? await this.liftPause(refreshed) : refreshed
     await conversationService.touch(phone)
 
     if (!text) {
@@ -252,7 +270,7 @@ export class DmService {
     // message away and replied with this question — so "wipe everything about me" and
     // "restart" were both answered with "which course is that group?", and the word
     // "Before that" promised an answer that never came.
-    await this.claimAddedGroup(user, message.chatJid)
+    // Group connection is automatic and never becomes a pending question in this DM.
 
     // A photographed timetable is not a question. Routed as one it becomes a search
     // for whatever the OCR happened to say, which is never what they meant.

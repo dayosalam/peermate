@@ -94,12 +94,16 @@ async function judge(
 async function run(student: User, questions: Question[], suites: Set<string>): Promise<Result[]> {
   const results: Result[] = []
   const profile = await studentContextService.describe(student)
+  const accessibleGroups = [
+    ...new Set([...(student.groupJids ?? []), ...(student.historicalGroupJids ?? [])]),
+  ]
 
   for (const question of questions) {
     const candidates = await retrievalService.search(
       question.ask,
       student.courseKeys,
-      student.groupJids,
+      accessibleGroups,
+      student.phone,
     )
 
     const result: Result = {
@@ -129,7 +133,10 @@ async function run(student: User, questions: Question[], suites: Set<string>): P
         // to is a correctness failure, not a quality score — so it is counted
         // separately and never averaged into a percentage.
         result.leaked = candidates.some(
-          (candidate) => candidate.chatJid && !student.groupJids.includes(candidate.chatJid),
+          (candidate) =>
+            candidate.chatJid &&
+            candidate.chatJid !== student.jid &&
+            !accessibleGroups.includes(candidate.chatJid),
         )
 
         const evidence = candidates

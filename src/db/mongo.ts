@@ -81,6 +81,11 @@ async function ensureIndexes(database: Db): Promise<void> {
   await database.collection('knowledge').createIndex({ chunkId: 1 }, { unique: true })
   await database.collection('knowledge').createIndex({ chatJid: 1, courseKey: 1 })
   await database.collection('knowledge').createIndex({ ownerPhone: 1 })
+  await database
+    .collection('memory_collections')
+    .createIndex({ userPhone: 1, name: 1 }, { unique: true })
+  await database.collection('deletion_jobs').createIndex({ phone: 1 }, { unique: true })
+  await database.collection('deletion_jobs').createIndex({ status: 1, updatedAt: 1 })
 
   await database.collection('resources').createIndex({ chatJid: 1, courseKey: 1, postedAt: -1 })
 

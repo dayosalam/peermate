@@ -80,7 +80,12 @@ export class ResourceAlertService {
     if (!batch || batch.resources.length === 0) return
 
     const { courseKey, chatJid } = batch
-    const students = await userRepository.subscribedTo(courseKey, chatJid, config.whatsapp.shardId)
+    const students = (
+      await userRepository.subscribedTo(courseKey, chatJid, config.whatsapp.shardId)
+    ).filter(
+      (student) =>
+        (student.groupPreferences?.find((one) => one.chatJid === chatJid)?.mode ?? 'all') === 'all',
+    )
     if (students.length === 0) {
       logger.info({ courseKey, files: batch.resources.length }, 'files filed, nobody to tell')
       return

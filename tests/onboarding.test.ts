@@ -14,10 +14,9 @@ vi.mock('../src/repositories/index.js', () => ({
 }))
 
 const { onboardingService } = await import('../src/services/onboarding.service.js')
-
 const PHONE = '2348100000000'
 
-function said(text: string, over: Partial<Message> = {}): Message {
+function said(text: string): Message {
   return {
     waMessageId: `m-${Math.random()}`,
     chatJid: `${PHONE}@s.whatsapp.net`,
@@ -39,144 +38,53 @@ function said(text: string, over: Partial<Message> = {}): Message {
     processingError: null,
     processingAttempts: 0,
     ingestedAt: new Date(),
-    ...over,
-  } as Message
+  }
 }
-
-const reply = (text: string, over?: Partial<Message>): Promise<string | null> =>
-  onboardingService.handle(said(text, over))
 
 beforeEach(() => {
   stored = null
 })
 
-describe('registering, start to finish', () => {
-  it('walks name, courses, digest and ends registered', async () => {
-    expect(await reply('hi')).toMatch(/what should I call you/i)
-    expect(await reply('Amina')).toMatch(/Which courses/i)
-
-    const confirmed = await reply('CSC 301, STA 202')
-    expect(confirmed).toMatch(/CSC 301/)
-    expect(confirmed).toMatch(/STA 202/)
-    expect(stored!.courseKeys).toEqual(['CSC301', 'STA202'])
-
-    const welcome = await reply('6am voice')
-    expect(welcome).toMatch(/all set/i)
+describe('registration without a setup gate', () => {
+  it('registers on first contact and explains immediate capabilities', async () => {
+    const reply = await onboardingService.handle(said('hi'))
+    expect(reply).toMatch(/remember messages, files and voice notes/i)
+    expect(reply).toMatch(/courses and groups are optional/i)
     expect(stored!.onboardingState).toBe('registered')
-    expect(stored!.digestHour).toBe(6)
-    expect(stored!.digestFormat).toBe('voice')
-  })
-
-  it('skips ahead when they open with their course list', async () => {
-    await reply('CSC 301 and MTH 101')
-    expect(stored!.onboardingState).toBe('awaiting_digest')
-    expect(stored!.courseKeys).toEqual(['CSC301', 'MTH101'])
-  })
-
-  it('falls back to the WhatsApp profile name on skip, rather than naming them Skip', async () => {
-    await reply('hi')
-    await reply('skip')
     expect(stored!.displayName).toBe('Amina Bello')
-    expect(stored!.onboardingState).toBe('awaiting_courses')
+    expect(stored!.automaticReminders).toBe(true)
   })
 
-  it('reads a name out of a sentence', async () => {
-    await reply('hi')
-    await reply("i'm chidi")
-    expect(stored!.displayName).toBe('Chidi')
+  it('accepts an optional course list without requiring another step', async () => {
+    await onboardingService.handle(said('CSC 301 and MTH 101'))
+    expect(stored!.courseKeys).toEqual(['CSC301', 'MTH101'])
+    expect(stored!.onboardingState).toBe('registered')
   })
 
-  // Found in the first live test: the student was registered as "Hello", which then
-  // headed every digest and reminder they received.
-  it('does not take a greeting as the name', async () => {
-    await reply('hi')
-    for (const salutation of ['Hello', 'hey', 'good evening', 'how far']) {
-      expect(await reply(salutation)).toMatch(/what should I call you/i)
-      expect(stored!.displayName).toBeNull()
-      expect(stored!.onboardingState).toBe('awaiting_name')
-    }
-
-    await reply('Amina')
-    expect(stored!.displayName).toBe('Amina')
-  })
-
-  it('says which default it took when the digest answer is not a time', async () => {
-    await reply('CSC 301')
-    const welcome = await reply('after breakfast')
-    expect(welcome).toMatch(/couldn't read a time/i)
-    expect(stored!.digestHour).toBe(7)
-  })
-
-  it('goes back a step and starts over on request', async () => {
-    await reply('hi')
-    await reply('Amina')
-    expect(await reply('back')).toMatch(/what should I call you/i)
-    expect(stored!.onboardingState).toBe('awaiting_name')
-
-    await reply('Amina')
-    await reply('CSC 301')
-    expect(await reply('restart')).toMatch(/starting over/i)
+  it('does not treat a course mentioned in a question as enrolment', async () => {
+    await onboardingService.handle(said('when is the CSC 301 test?'))
     expect(stored!.courseKeys).toEqual([])
   })
-})
 
-/**
- * The regression this exists for: "cancel" was checked before the state switch, so a
- * fully registered student typing it lost their name, their courses and their
- * settings without ever being asked.
- */
-describe('once registered, onboarding is finished with them', () => {
-  it('leaves a registered student alone', async () => {
-    await reply('CSC 301')
-    await reply('7am')
+  it('leaves a registered user out of onboarding', async () => {
+    await onboardingService.handle(said('hi'))
     const before = { ...stored! }
+    expect(await onboardingService.handle(said('restart'))).toBeNull()
+    expect(stored).toEqual(before)
+  })
 
-    expect(await reply('cancel')).toBeNull()
-    expect(await reply('restart')).toBeNull()
-    expect(await reply('back')).toBeNull()
-    expect(stored!.courseKeys).toEqual(before.courseKeys)
+  it('migrates an account stranded in the old onboarding flow', async () => {
+    await onboardingService.handle(said('hi'))
+    stored = { ...stored!, onboardingState: 'awaiting_courses', registeredAt: null }
+    expect(await onboardingService.handle(said('what did I miss?'))).toMatch(/start right here/i)
     expect(stored!.onboardingState).toBe('registered')
+    expect(stored!.registeredAt).toBeInstanceOf(Date)
   })
 })
 
-/**
- * People arrive already wanting something. Taking "when is the CSC 301 test?" as
- * their name, or answering it with "what should I call you?" and nothing else, reads
- * as not having listened.
- */
-describe('a question asked during registration', () => {
-  it('is acknowledged before the first question is asked', async () => {
-    const first = await reply('when is the CSC 301 test?')
-    expect(first).toMatch(/when is the CSC 301 test/i)
-    expect(first).toMatch(/what should I call you/i)
-  })
-
-  it('is acknowledged at the name step without being taken as a name', async () => {
-    await reply('hello')
-    const answer = await reply('do you know what was announced today?')
-    expect(answer).toMatch(/what should I call you/i)
-    expect(stored!.displayName).toBeNull()
-  })
-
-  it('is acknowledged at the courses step', async () => {
-    await reply('hi')
-    await reply('Amina')
-    const answer = await reply('can you read my WhatsApp messages?')
-    expect(answer).toMatch(/can you read my WhatsApp messages/i)
-    expect(answer).toMatch(/Which courses/i)
-  })
-
-  it('does not mistake a one-word name for a question', async () => {
-    await reply('hi')
-    await reply('Will')
-    expect(stored!.displayName).toBe('Will')
-    expect(stored!.onboardingState).toBe('awaiting_courses')
-  })
-
-  it('does not mistake a digest preference for a question', async () => {
-    await reply('CSC 301')
-    await reply('can I get it at 6am?')
-    expect(stored!.digestHour).toBe(6)
-    expect(stored!.onboardingState).toBe('registered')
+describe('optional profile helpers', () => {
+  it('still reads names and digest preferences for settings tools', () => {
+    expect(onboardingService.readName("i'm chidi")).toBe('Chidi')
+    expect(onboardingService.parseDigestPreference('6am voice')).toEqual({ hour: 6, format: 'voice' })
   })
 })

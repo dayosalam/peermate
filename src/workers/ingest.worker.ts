@@ -30,8 +30,8 @@ async function handle(raw: WAMessage): Promise<void> {
   const message = normalize(raw)
   if (!message) return
 
-  // Being in a group is not permission to read it. Nothing from an unapproved group
-  // is stored — not the text, not the media, not even the fact it was sent. PRD §7.
+  // Ignored and revoked groups stay unread. A newly joined group is active immediately;
+  // retrieval remains scoped to verified members rather than to a course label.
   if (message.fromGroup && !(await isApproved(message.chatJid))) {
     logger.debug({ chatJid: message.chatJid }, 'group not approved, discarding')
     return
@@ -70,6 +70,8 @@ async function handle(raw: WAMessage): Promise<void> {
     // A DM is a student talking to Peermate; a group message is source material.
     // They share ingestion and provenance but nothing after it.
     if (!message.fromGroup) {
+      await rememberPrivate(message, log)
+      await messageRepository.markPrivateIndexed(message.waMessageId)
       await dmService.handle(message)
       await messageRepository.setStatus(message.waMessageId, 'done')
       return
@@ -85,6 +87,46 @@ async function handle(raw: WAMessage): Promise<void> {
     log.error({ err: error }, 'ingest failed')
     await messageRepository.setStatus(message.waMessageId, 'failed', String(error))
   }
+}
+
+/**
+ * A DM is part of the user's private memory, not disposable command traffic.
+ * Originals already live in messages/MinIO; this adds the searchable representation
+ * under ownerPhone so no group member can ever retrieve it.
+ */
+async function rememberPrivate(message: Message, log: typeof logger): Promise<void> {
+  if (message.type === 'document') {
+    await readDocument(message, null, log)
+    return
+  }
+
+  const content = [message.text, message.caption, message.transcript]
+    .filter(Boolean)
+    .join('\n\n')
+    .trim()
+  if (content) await indexingService.index(message, content, [null])
+}
+
+/** Idempotently makes pre-product DMs searchable in the same private namespace. */
+export async function backfillPrivateMemory(): Promise<number> {
+  let indexed = 0
+  for (const message of await messageRepository.privateMessages()) {
+    if (!message.senderPhone) continue
+    try {
+      await rememberPrivate(
+        message,
+        logger.child({ waMessageId: message.waMessageId, backfill: true }),
+      )
+      await messageRepository.markPrivateIndexed(message.waMessageId)
+      indexed += 1
+    } catch (error) {
+      logger.warn(
+        { err: error, waMessageId: message.waMessageId },
+        'private memory backfill failed',
+      )
+    }
+  }
+  return indexed
 }
 
 /** Turns audio and images into text. The transcript is what everything downstream reads. */
@@ -264,8 +306,8 @@ async function storeMedia(raw: WAMessage, message: Message): Promise<string> {
 async function isApproved(chatJid: string): Promise<boolean> {
   const group = await groupRepository.findByJid(chatJid)
   if (!group) {
-    await groupService.register(chatJid, { subject: null })
-    return false
+    const registered = await groupService.register(chatJid, { subject: null })
+    return registered.status === 'approved'
   }
 
   // Only the number that is in a group can read it. A record still pointing at

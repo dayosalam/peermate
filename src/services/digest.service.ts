@@ -63,7 +63,14 @@ export class DigestService {
       student.groupJids,
     )
     const dueToday = await extractionRepository.dueOn(student.courseKeys, today, student.groupJids)
-    const items = dedupe([...fresh, ...dueToday])
+    const items = dedupe([...fresh, ...dueToday]).filter((item) => {
+      const mode =
+        student.groupPreferences?.find((one) => one.chatJid === item.chatJid)?.mode ?? 'all'
+      return (
+        mode !== 'paused' &&
+        (mode !== 'deadlines' || ['deadline', 'test', 'assignment'].includes(item.eventType))
+      )
+    })
 
     // Nothing to report is itself worth reporting — silence is indistinguishable
     // from Peermate being down. Say so plainly; never invent a digest (PRD §11).

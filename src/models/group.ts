@@ -1,8 +1,8 @@
 import { z } from 'zod'
 
 /**
- * Anybody can add the bot to any group, so being in one is not permission to read
- * it. A group ingests nothing until the operator approves it — see PRD §7.
+ * Joining activates a group after a one-time disclosure. Retrieval is separately
+ * membership-scoped, so active ingestion is not public access.
  *
  * `revoked` is the end of the relationship: Peermate was removed, or the group was
  * deleted. Ingest stops and everything already stored becomes unreachable to every
@@ -73,5 +73,10 @@ export const GroupSchema = z.object({
   approvedBy: z.string().nullable().default(null),
   joinedAt: z.date(),
   approvedAt: z.date().nullable().default(null),
+  /** Legacy combined marker; retained so deployed rows do not receive a second notice. */
+  disclosedAt: z.date().nullable().optional(),
+  /** Claimed independently so a failed private confirmation never repeats the room notice. */
+  groupDisclosedAt: z.date().nullable().optional(),
+  adderNotifiedAt: z.date().nullable().optional(),
 })
 export type Group = z.infer<typeof GroupSchema>

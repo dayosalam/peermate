@@ -14,6 +14,13 @@ export const NO_COURSE = 'NONE'
  * assembled from several.
  */
 export class IndexingService {
+  /** Removes one user's private vectors from every active search backend. */
+  async deletePrivate(ownerPhone: string): Promise<void> {
+    if (config.searchBackend !== 'atlas') {
+      await getCollection().delete({ where: { ownerPhone: { $eq: ownerPhone } } })
+    }
+    await knowledgeRepository.deleteOwned(ownerPhone)
+  }
   /**
    * Indexed once per course it mentions.
    *
@@ -199,6 +206,7 @@ export class IndexingService {
       senderName: message.senderName ?? 'unknown',
       type: message.type,
       sourceKind: 'message',
+      ownerPhone: message.fromGroup ? '' : (message.senderPhone ?? ''),
       // Chroma metadata is scalar-only, and a range filter needs a number.
       timestampMs: message.timestamp.getTime(),
     }

@@ -5,6 +5,7 @@ let stored: Group[] = []
 let users: User[] = []
 const sent: Array<{ jid: string; text: string }> = []
 let proposals: Array<{ phone: string; proposal: unknown }> = []
+let failJid: string | null = null
 
 vi.mock('../src/repositories/index.js', () => ({
   groupRepository: {
@@ -13,9 +14,41 @@ vi.mock('../src/repositories/index.js', () => ({
     upsert: vi.fn(async (group: Group) => {
       stored = [...stored.filter((g) => g.chatJid !== group.chatJid), group]
     }),
+    claimGroupDisclosure: vi.fn(async (jid: string) => {
+      const group = stored.find((one) => one.chatJid === jid)
+      if (!group || group.groupDisclosedAt || group.disclosedAt) return false
+      group.groupDisclosedAt = new Date()
+      return true
+    }),
+    releaseGroupDisclosure: vi.fn(async (jid: string) => {
+      const group = stored.find((one) => one.chatJid === jid)
+      if (group) group.groupDisclosedAt = null
+    }),
+    claimAdderNotice: vi.fn(async (jid: string) => {
+      const group = stored.find((one) => one.chatJid === jid)
+      if (!group?.addedBy || group.adderNotifiedAt) return false
+      group.adderNotifiedAt = new Date()
+      return true
+    }),
+    releaseAdderNotice: vi.fn(async (jid: string) => {
+      const group = stored.find((one) => one.chatJid === jid)
+      if (group) group.adderNotifiedAt = null
+    }),
+    undisclosed: vi.fn(async () =>
+      stored.filter(
+        (one) => !one.groupDisclosedAt || (Boolean(one.addedBy) && !one.adderNotifiedAt),
+      ),
+    ),
   },
   userRepository: {
     findByPhone: vi.fn(async (phone: string) => users.find((u) => u.phone === phone) ?? null),
+    addGroup: vi.fn(async (phone: string, chatJid: string) => {
+      users = users.map((user) =>
+        user.phone === phone
+          ? { ...user, groupJids: [...new Set([...user.groupJids, chatJid])] }
+          : user,
+      )
+    }),
     dropGroupForAll: vi.fn(async () => 0),
     dropGroupFor: vi.fn(async () => 0),
   },
@@ -25,6 +58,7 @@ vi.mock('../src/repositories/index.js', () => ({
 vi.mock('../src/services/notifier.service.js', () => ({
   notifierService: {
     sendText: vi.fn(async (jid: string, text: string) => {
+      if (jid === failJid) throw new Error('send failed')
       sent.push({ jid, text })
       return 'id'
     }),
@@ -86,6 +120,7 @@ beforeEach(() => {
   users = [student(ADDER), student(OTHER)]
   sent.length = 0
   proposals = []
+  failJid = null
 })
 
 describe('who can switch a group on', () => {
@@ -150,44 +185,62 @@ describe('who can switch a group on', () => {
 })
 
 describe('who gets asked when Peermate is added', () => {
-  it('asks the adder, not the operator, when they are registered', async () => {
+  it('discloses in the group and confirms privately with the adder', async () => {
     await groupService.register('g1@g.us', {
       subject: 'CVE 575 — 2025/26',
       addedBy: ADDER_JID,
       addedByName: 'Chidi',
     })
 
-    expect(sent).toHaveLength(1)
-    expect(sent[0]!.jid).toBe(ADDER_JID)
-    expect(sent[0]!.text).toMatch(/You added me to/)
+    expect(sent).toHaveLength(2)
+    expect(sent[0]!.jid).toBe('g1@g.us')
+    expect(sent[0]!.text).toMatch(/remember what is shared/i)
+    expect(sent[1]!.jid).toBe(ADDER_JID)
+    expect(sent[1]!.text).toMatch(/connected/i)
+    expect(users[0]!.groupJids).toContain('g1@g.us')
   })
 
-  it('holds the guessed course as a pending yes/no', async () => {
+  it('infers a course as optional metadata without creating a pending question', async () => {
     await groupService.register('g1@g.us', { subject: 'CVE 575 class', addedBy: ADDER_JID })
-    expect(proposals.at(-1)).toMatchObject({ phone: ADDER, proposal: { course: 'CVE 575' } })
+    expect(stored[0]!.defaultCourse).toBe('CVE 575')
+    expect(proposals).toHaveLength(0)
   })
 
   /**
    * Peermate never opens a conversation with someone who has not written to it, and it
    * no longer hands the question to anybody else. The group simply waits.
    */
-  it('says nothing at all when the adder has never written', async () => {
+  it('still discloses and confirms when the adder has never written', async () => {
     users = []
     await groupService.register('g1@g.us', { subject: 'CVE 575 class', addedBy: ADDER_JID })
-    expect(sent).toHaveLength(0)
-    expect(stored[0]!.status).toBe('pending')
+    expect(sent).toHaveLength(2)
+    expect(stored[0]!.status).toBe('approved')
   })
 
   // Who gets offered it afterwards is membership's decision, not this service's —
   // see tests/membership.test.ts.
 
-  it('says nothing when nobody was recorded as the adder', async () => {
+  it('still discloses when nobody was recorded as the adder', async () => {
     await groupService.register('g1@g.us', { subject: 'CVE 575 class' })
-    expect(sent).toHaveLength(0)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.jid).toBe('g1@g.us')
   })
 
-  it('reads nothing either way until somebody says so', async () => {
+  it('starts learning immediately', async () => {
     await groupService.register('g1@g.us', { subject: 'CVE 575 class', addedBy: ADDER_JID })
-    expect(stored[0]!.status).toBe('pending')
+    expect(stored[0]!.status).toBe('approved')
+  })
+
+  it('retries only a failed private confirmation without repeating the room notice', async () => {
+    failJid = ADDER_JID
+    await expect(
+      groupService.register('g1@g.us', { subject: 'CVE 575 class', addedBy: ADDER_JID }),
+    ).rejects.toThrow('send failed')
+    expect(sent.filter((message) => message.jid === 'g1@g.us')).toHaveLength(1)
+
+    failJid = null
+    await groupService.retryDisclosures()
+    expect(sent.filter((message) => message.jid === 'g1@g.us')).toHaveLength(1)
+    expect(sent.filter((message) => message.jid === ADDER_JID)).toHaveLength(1)
   })
 })

@@ -11,6 +11,11 @@ export type OnboardingState = z.infer<typeof OnboardingState>
 export const DigestFormat = z.enum(['text', 'voice'])
 export type DigestFormat = z.infer<typeof DigestFormat>
 
+export const GroupPreferenceSchema = z.object({
+  chatJid: z.string(),
+  mode: z.enum(['all', 'deadlines', 'paused']),
+})
+
 export const UserSchema = z.object({
   phone: z.string(),
   jid: z.string(),
@@ -24,7 +29,7 @@ export const UserSchema = z.object({
    * gives both, so the mapping is recorded once rather than re-derived and failed at
    * every call site.
    */
-  lid: z.string().nullable().default(null),
+  lid: z.string().nullable().optional(),
   /** WhatsApp's pushName — whatever their profile says. */
   name: z.string().nullable(),
   /** What they asked to be called. Used in every message Peermate sends them. */
@@ -38,6 +43,10 @@ export const UserSchema = z.object({
    * in another school's DMs.
    */
   groupJids: z.array(z.string()).default([]),
+  /** Groups the student was once verified in. Existing history remains recoverable. */
+  historicalGroupJids: z.array(z.string()).optional(),
+  /** Per-group proactive behaviour; retrieval remains available until explicitly forgotten. */
+  groupPreferences: z.array(GroupPreferenceSchema).optional(),
   /**
    * The bot number this student talks to.
    *
@@ -77,5 +86,10 @@ export const UserSchema = z.object({
   alertLevel: z.enum(['all', 'urgent']).default('all'),
   /** Courses they still want in the digest but no longer want pinged about. */
   mutedCourseKeys: z.array(z.string()).default([]),
+  /**
+   * Whether dates Peermate learns should become personal reminders automatically.
+   * The information is always retained; this controls only proactive delivery.
+   */
+  automaticReminders: z.boolean().optional(),
 })
 export type User = z.infer<typeof UserSchema>
