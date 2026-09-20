@@ -1,5 +1,77 @@
 import { z } from 'zod'
 
+const Coordinate = z.number().min(0).max(1)
+const Timed = { at: z.number().min(0).max(1), duration: z.number().min(0.02).max(1).default(0.12) }
+
+/** A small, deterministic visual language the planner can compose safely. */
+export const WhiteboardActionSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('write'),
+    text: z.string(),
+    x: Coordinate,
+    y: Coordinate,
+    size: z.number().min(18).max(72).default(38),
+    color: z.string().default('#172033'),
+    ...Timed,
+  }),
+  z.object({
+    type: z.literal('box'),
+    x: Coordinate,
+    y: Coordinate,
+    width: Coordinate,
+    height: Coordinate,
+    label: z.string().nullable().default(null),
+    color: z.string().default('#2563eb'),
+    ...Timed,
+  }),
+  z.object({
+    type: z.literal('circle'),
+    x: Coordinate,
+    y: Coordinate,
+    radius: Coordinate,
+    label: z.string().nullable().default(null),
+    color: z.string().default('#7c3aed'),
+    ...Timed,
+  }),
+  z.object({
+    type: z.literal('line'),
+    fromX: Coordinate,
+    fromY: Coordinate,
+    toX: Coordinate,
+    toY: Coordinate,
+    color: z.string().default('#172033'),
+    ...Timed,
+  }),
+  z.object({
+    type: z.literal('arrow'),
+    fromX: Coordinate,
+    fromY: Coordinate,
+    toX: Coordinate,
+    toY: Coordinate,
+    label: z.string().nullable().default(null),
+    color: z.string().default('#dc2626'),
+    ...Timed,
+  }),
+  z.object({
+    type: z.literal('highlight'),
+    x: Coordinate,
+    y: Coordinate,
+    width: Coordinate,
+    height: Coordinate,
+    color: z.string().default('#fde047'),
+    ...Timed,
+  }),
+  z.object({
+    type: z.literal('erase'),
+    x: Coordinate,
+    y: Coordinate,
+    width: Coordinate,
+    height: Coordinate,
+    ...Timed,
+  }),
+])
+export type WhiteboardAction = z.infer<typeof WhiteboardActionSchema>
+
 /**
  * What the student sees while a scene is spoken.
  *
@@ -19,6 +91,12 @@ export const VisualSchema = z.discriminatedUnion('kind', [
     page: z.number().int().positive(),
   }),
   z.object({ kind: z.literal('title'), text: z.string() }),
+  z.object({
+    kind: z.literal('whiteboard'),
+    /** Continue the immediately preceding board only when the diagram truly continues. */
+    carry: z.boolean().default(false),
+    actions: z.array(WhiteboardActionSchema).min(4).max(24),
+  }),
   /**
    * An image made for this beat rather than taken from the material. Only where it
    * cannot carry content — an opener, a break, a closing card. Never a diagram or a

@@ -15,7 +15,7 @@ services:
       # there is no TLS to terminate and no certificate to keep alive.
       CHROMA_URL: http://chroma:8000
       MINIO_ENDPOINT: minio:9000
-      MINIO_USE_SSL: "false"
+      MINIO_USE_SSL: 'false'
       WHATSAPP_AUTH_DIR: /app/auth_state
       # Which bot number this container is. One shard, one number, one auth volume.
       SHARD_ID: default
@@ -24,7 +24,7 @@ services:
       # Losing this means re-pairing by hand from the bot's phone. Back it up.
       - auth_state:/app/auth_state
     ports:
-      - "3000:3000"
+      - '3000:3000'
     depends_on:
       - minio
       - chroma
@@ -39,6 +39,20 @@ services:
       replicas: 1
       update_config:
         order: stop-first
+
+  render-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    env_file: .env
+    environment:
+      MINIO_ENDPOINT: minio:9000
+      MINIO_USE_SSL: 'false'
+      SHARD_ID: default
+      RENDER_VIDEO_ENABLED: 'true'
+    depends_on:
+      - minio
+    restart: unless-stopped
 
   # Adding a second bot number:
   #

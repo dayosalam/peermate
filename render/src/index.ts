@@ -1,11 +1,12 @@
 import { mkdtemp, mkdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { concat, segment } from './assemble.js'
+import { animate, concat, segment } from './assemble.js'
 import { download, encodeForDelivery, stitch } from './network.js'
 import { cues } from './captions.js'
 import { durationOf, narrate } from './narrate.js'
 import { frame, prepare } from './slides.js'
+import { WHITEBOARD_FPS, whiteboardFrame } from './whiteboard.js'
 import { StoryboardSchema, type Rendered, type Storyboard } from './storyboard.js'
 
 /**
@@ -44,6 +45,7 @@ export async function render(
 
   try {
     const clips: string[] = []
+    let completedWhiteboardActions: import('./storyboard.js').WhiteboardAction[] = []
 
     for (const [index, scene] of storyboard.scenes.entries()) {
       const stem = join(work, String(index).padStart(3, '0'))
@@ -55,8 +57,37 @@ export async function render(
       const spoken = await narrate(scene.narration, audio)
       step(`narrated scene ${index + 1} of ${storyboard.scenes.length}`)
 
-      const visual = await prepare(scene.visual)
       const lines = cues(scene.narration, spoken)
+
+      if (scene.visual.kind === 'whiteboard') {
+        const frames = `${stem}-frames`
+        await mkdir(frames)
+        const count = Math.max(2, Math.ceil(spoken * WHITEBOARD_FPS))
+        for (let at = 0; at < count; at += 1) {
+          const path = join(frames, `${String(at).padStart(6, '0')}.png`)
+          await writeFile(
+            path,
+            whiteboardFrame(
+              scene.visual.actions,
+              at / Math.max(count - 1, 1),
+              storyboard.title,
+              scene.source,
+              lines,
+              scene.visual.carry ? completedWhiteboardActions : [],
+            ),
+          )
+        }
+        const clip = `${stem}-scene.mp4`
+        await animate(join(frames, '%06d.png'), WHITEBOARD_FPS, audio, spoken, clip)
+        clips.push(clip)
+        completedWhiteboardActions = scene.visual.carry
+          ? [...completedWhiteboardActions, ...scene.visual.actions]
+          : [...scene.visual.actions]
+        step(`animated scene ${index + 1} of ${storyboard.scenes.length}`)
+        continue
+      }
+
+      const visual = await prepare(scene.visual)
 
       // A caption changes while the narration continues, so a scene becomes one
       // segment per caption — all sharing the same audio, each taking its slice of it.

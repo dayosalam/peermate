@@ -31,6 +31,13 @@ export const JobSceneSchema = z.object({
 })
 export type JobScene = z.infer<typeof JobSceneSchema>
 
+export const JobMaterialSchema = z.object({
+  mediaKey: z.string(),
+  fileName: z.string(),
+  pages: z.array(z.number().int().positive()).default([]),
+})
+export type JobMaterial = z.infer<typeof JobMaterialSchema>
+
 /**
  * A video a student asked for, and the state of making it.
  *
@@ -48,6 +55,8 @@ export const RenderJobSchema = z.object({
   topic: z.string().nullable(),
   title: z.string(),
   scenes: z.array(JobSceneSchema),
+  /** PDFs selected by grounded retrieval for the whiteboard planner. */
+  materials: z.array(JobMaterialSchema).default([]),
   status: z.enum(['pending', 'rendering', 'done', 'failed']).default('pending'),
   attempts: z.number().default(0),
   lastError: z.string().nullable().default(null),

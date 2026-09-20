@@ -72,6 +72,9 @@ describe('turning a script into a render job', () => {
       page: 8,
     })
     expect(job.scenes[0]!.source).toBe('CVE575_wk4.pdf, p.8')
+    expect(job.materials).toEqual([
+      { mediaKey: 'doc/cve575-wk4', fileName: 'CVE575_wk4.pdf', pages: [8] },
+    ])
   })
 
   /** The file lives in a group. Fetching bytes is the last place to get that wrong. */

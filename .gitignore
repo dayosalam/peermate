@@ -34,6 +34,7 @@ auth_state/
 chroma_data/
 minio_data/
 evals/fixtures/
+zfiles/
 
 # Local development env — never committed.
 .env.local

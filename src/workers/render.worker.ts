@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { config } from '../config.js'
 import { logger } from '../core/logger.js'
 import { getMedia, putMedia } from '../db/minio.js'
-import type { JobScene, RenderJob } from '../models/index.js'
+import type { JobMaterial, JobScene, RenderJob } from '../models/index.js'
 import { outboxRepository, renderJobRepository } from '../repositories/index.js'
 
 /** Long enough for a five-minute explainer plus the network being slow, short enough to give up. */
@@ -18,6 +18,14 @@ interface Progress {
   done: number
   total: number
   stage: string
+}
+
+interface RenderResult {
+  path: string
+  bytes: number
+  playbackUrl: string
+  durationSec: number
+  fitsInChat: boolean
 }
 
 /**
@@ -64,12 +72,13 @@ export class RenderWorker {
     try {
       await renderJobRepository.finish(job.key, { startedAt: new Date(), progress: 0 })
 
-      const storyboard = toStoryboard(job, await this.materialise(job, work))
+      const paths = await this.materialise(job, work)
+      const storyboard = toRenderInput(job, paths)
       const boardPath = join(work, 'storyboard.json')
       const videoPath = join(work, 'explainer.mp4')
       await writeFile(boardPath, JSON.stringify(storyboard))
 
-      await this.spawnRender(boardPath, videoPath, (progress) =>
+      const rendered = await this.spawnRender(boardPath, videoPath, (progress) =>
         renderJobRepository
           .finish(job.key, { progress: progress.done / progress.total, stage: progress.stage })
           .catch((error) => logger.warn({ err: error }, 'could not record progress')),
@@ -79,13 +88,15 @@ export class RenderWorker {
       const mediaKey = `render/${job.key.replace(/[^\w-]/g, '_')}.mp4`
       await putMedia(mediaKey, bytes, 'video/mp4')
 
-      await this.handOff(job, mediaKey, bytes.byteLength)
+      await this.handOff(job, mediaKey, rendered)
       await renderJobRepository.finish(job.key, {
         status: 'done',
         progress: 1,
         stage: 'sent',
         bytes: bytes.byteLength,
         videoPath: mediaKey,
+        playbackUrl: rendered.playbackUrl,
+        durationSec: rendered.durationSec,
       })
       logger.info(
         {
@@ -114,14 +125,26 @@ export class RenderWorker {
    */
   private async materialise(job: RenderJob, work: string): Promise<Map<string, string>> {
     const paths = new Map<string, string>()
-    for (const [index, scene] of job.scenes.entries()) {
-      if (scene.visual.kind !== 'slide' || paths.has(scene.visual.mediaKey)) continue
+    const sceneMaterials: JobMaterial[] = job.scenes.flatMap((scene) =>
+      scene.visual.kind === 'slide'
+        ? [
+            {
+              mediaKey: scene.visual.mediaKey,
+              fileName: scene.visual.fileName,
+              pages: scene.visual.page ? [scene.visual.page] : [],
+            },
+          ]
+        : [],
+    )
+    const materials = [...(job.materials ?? []), ...sceneMaterials]
+    for (const [index, material] of materials.entries()) {
+      if (paths.has(material.mediaKey)) continue
       try {
         const pdfPath = join(work, `${index}.pdf`)
-        await writeFile(pdfPath, await getMedia(scene.visual.mediaKey))
-        paths.set(scene.visual.mediaKey, pdfPath)
+        await writeFile(pdfPath, await getMedia(material.mediaKey))
+        paths.set(material.mediaKey, pdfPath)
       } catch (error) {
-        logger.warn({ err: error, mediaKey: scene.visual.mediaKey }, 'slide could not be fetched')
+        logger.warn({ err: error, mediaKey: material.mediaKey }, 'material could not be fetched')
       }
     }
     return paths
@@ -141,7 +164,7 @@ export class RenderWorker {
     board: string,
     out: string,
     onProgress: (progress: Progress) => void,
-  ): Promise<void> {
+  ): Promise<RenderResult> {
     return new Promise((resolve, reject) => {
       const child = spawn(config.render.command, [...config.render.args, board, out], {
         cwd: config.render.cwd,
@@ -153,10 +176,12 @@ export class RenderWorker {
         reject(new Error(`render exceeded ${RENDER_TIMEOUT_MS}ms`))
       }, RENDER_TIMEOUT_MS)
 
+      let result: RenderResult | null = null
       createInterface({ input: child.stdout }).on('line', (line) => {
         try {
-          const parsed = JSON.parse(line) as { progress?: Progress }
+          const parsed = JSON.parse(line) as { progress?: Progress; result?: RenderResult }
           if (parsed.progress) onProgress(parsed.progress)
+          if (parsed.result) result = parsed.result
         } catch {
           // The renderer also prints human lines. Not every line is a progress record.
         }
@@ -173,7 +198,8 @@ export class RenderWorker {
       })
       child.on('close', (code) => {
         clearTimeout(timer)
-        if (code === 0) resolve()
+        if (code === 0 && result) resolve(result)
+        else if (code === 0) reject(new Error('render exited without reporting its result'))
         else reject(new Error(`render exited ${code}: ${stderr.slice(-400)}`))
       })
     })
@@ -185,7 +211,7 @@ export class RenderWorker {
    * `solicited`, so it goes out when it is ready rather than waiting for quiet hours —
    * the student asked for this and watched it being built.
    */
-  private async handOff(job: RenderJob, mediaKey: string, bytes: number): Promise<void> {
+  private async handOff(job: RenderJob, mediaKey: string, rendered: RenderResult): Promise<void> {
     await outboxRepository.claim({
       key: `render:${job.key}`,
       shardId: job.shardId,
@@ -195,7 +221,12 @@ export class RenderWorker {
       status: 'pending',
       attempts: 0,
       lastError: null,
-      video: { mediaKey, playbackUrl: job.playbackUrl, bytes, durationSec: job.durationSec ?? 0 },
+      video: {
+        mediaKey,
+        playbackUrl: rendered.playbackUrl,
+        bytes: rendered.bytes,
+        durationSec: rendered.durationSec,
+      },
       solicited: true,
       notBefore: new Date(),
       createdAt: new Date(),
@@ -217,6 +248,21 @@ export function toStoryboard(job: RenderJob, paths: Map<string, string>): unknow
     source: scene.source,
   }))
   return { title: job.title, course: job.courseKey, scenes }
+}
+
+/** New jobs plan an animated lesson from the exact PDFs retrieval selected. */
+export function toRenderInput(job: RenderJob, paths: Map<string, string>): unknown {
+  const materials = (job.materials ?? []).flatMap((material) => {
+    const path = paths.get(material.mediaKey)
+    return path ? [{ path, fileName: material.fileName, pages: material.pages }] : []
+  })
+  if (materials.length === 0) return toStoryboard(job, paths)
+  return {
+    kind: 'whiteboard-request',
+    course: job.courseKey,
+    topic: job.topic,
+    materials,
+  }
 }
 
 function visualFor(scene: JobScene, paths: Map<string, string>, title: string): unknown {

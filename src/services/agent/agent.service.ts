@@ -54,6 +54,7 @@ Tools:
 - Exact recovery by sender, group, date or media type: list_memory. Use get_source when they select one, and send_original when they ask to receive it.
 - Their own week: get_timetable.
 - Sending files costs them mobile data. Offer, and only send after they agree.
+- When they explicitly ask for a video, animation, whiteboard walkthrough, or to be shown a course topic, use render_explainer. Do not require a special command or exact wording.
 - find_papers is the web, not their lecturer. Only on an explicit request, and always labelled.`
 
 export interface AgentContext extends ToolContext {

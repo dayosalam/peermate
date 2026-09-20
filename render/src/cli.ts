@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { render } from './index.js'
 import { provider } from './narrate.js'
+import { planFromPdfs } from './plan.js'
 
 /**
  * Storyboard in, MP4 out. No Mongo, no WhatsApp, no Peermate.
@@ -24,13 +25,52 @@ const started = Date.now()
  * Line-delimited so a reader acts on each as it arrives, which means the caller must
  * stream stdout rather than buffer it to exit.
  */
-const result = await render(JSON.parse(await readFile(input, 'utf8')), output, (progress) => {
+const supplied = JSON.parse(await readFile(input, 'utf8')) as unknown
+const request = isWhiteboardRequest(supplied) ? supplied : null
+const storyboard = request
+  ? await planFromPdfs(
+      request.materials,
+      request.topic ?? `A concise overview of ${request.course}`,
+    )
+  : supplied
+
+const result = await render(storyboard, output, (progress) => {
   console.log(JSON.stringify({ progress }))
 })
+
+console.log(JSON.stringify({ result }))
 
 console.log(
   `${result.path}  ${(result.bytes / 1e6).toFixed(1)}MB  ${result.durationSec}s  (rendered in ${Math.round((Date.now() - started) / 1000)}s)`,
 )
+
+interface WhiteboardRequest {
+  kind: 'whiteboard-request'
+  course: string
+  topic: string | null
+  materials: Array<{ path: string; fileName: string; pages?: number[] }>
+}
+
+function isWhiteboardRequest(value: unknown): value is WhiteboardRequest {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<WhiteboardRequest>
+  return (
+    candidate.kind === 'whiteboard-request' &&
+    typeof candidate.course === 'string' &&
+    (typeof candidate.topic === 'string' || candidate.topic === null) &&
+    Array.isArray(candidate.materials) &&
+    candidate.materials.length > 0 &&
+    candidate.materials.every(
+      (item) =>
+        item &&
+        typeof item === 'object' &&
+        typeof item.path === 'string' &&
+        typeof item.fileName === 'string' &&
+        (item.pages === undefined ||
+          (Array.isArray(item.pages) && item.pages.every((page) => Number.isInteger(page)))),
+    )
+  )
+}
 console.log(`hosted: ${result.playbackUrl}`)
 console.log(
   result.fitsInChat

@@ -6,6 +6,7 @@
   "description": "Turns a grounded storyboard into a narrated slide video. Isolated from the bot on purpose.",
   "scripts": {
     "render": "tsx --env-file=.env src/cli.ts",
+    "explain": "tsx --env-file=.env src/explain-cli.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "tsx --test src/*.test.ts"
   },

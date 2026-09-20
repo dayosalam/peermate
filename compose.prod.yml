@@ -3,8 +3,8 @@ name: peermate-whatsapp
 x-logging: &default-logging
   driver: json-file
   options:
-    max-size: "10m"
-    max-file: "5"
+    max-size: '10m'
+    max-file: '5'
 
 services:
   app:
@@ -16,18 +16,18 @@ services:
       - .env
     environment:
       ENVIRONMENT: production
-      PORT: "3000"
+      PORT: '3000'
       MONGODB_URL: mongodb://mongo:27017
       CHROMA_URL: http://chroma:8000
       MINIO_ENDPOINT: minio:9000
-      MINIO_USE_SSL: "false"
+      MINIO_USE_SSL: 'false'
       SEARCH_BACKEND: chroma
       SHARD_ID: default
       WHATSAPP_AUTH_DIR: /app/auth_state
     volumes:
       - whatsapp_auth:/app/auth_state
     ports:
-      - "127.0.0.1:3011:3000"
+      - '127.0.0.1:3011:3000'
     depends_on:
       mongo:
         condition: service_healthy
@@ -54,12 +54,37 @@ services:
       - /tmp:size=64m,mode=1777
     logging: *default-logging
 
+  render-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    env_file:
+      - .env
+    environment:
+      ENVIRONMENT: production
+      MONGODB_URL: mongodb://mongo:27017
+      MINIO_ENDPOINT: minio:9000
+      MINIO_USE_SSL: 'false'
+      SHARD_ID: default
+      RENDER_VIDEO_ENABLED: 'true'
+    depends_on:
+      mongo:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+    init: true
+    mem_limit: 1g
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+    logging: *default-logging
+
   mongo:
     image: mongo:7.0.30@sha256:da7bfd48ee2e48e6d0a60757f14eb26b0cb2929691ef9eded0f8cff0c77a8f9a
     volumes:
       - mongo_data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      test: ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping').ok"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -85,7 +110,7 @@ services:
     volumes:
       - media_data:/data
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:9000/minio/health/live']
       interval: 10s
       timeout: 5s
       retries: 10

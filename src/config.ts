@@ -69,7 +69,9 @@ const envSchema = z.object({
   RENDER_VIDEO_ENABLED: booleanFromEnv.default('false'),
   RENDER_CWD: z.string().default('render'),
   RENDER_COMMAND: z.string().default('npx'),
-  RENDER_ARGS: z.string().default('tsx,--env-file=.env,src/cli.ts'),
+  // The child inherits this process's environment. Do not require render/.env: it is
+  // useful for standalone local tests but deliberately absent from production images.
+  RENDER_ARGS: z.string().default('tsx,src/cli.ts'),
 
   // Off during a live demo: an alert held for a minute looks like an alert that
   // never came, when the whole point on screen is that it arrives instantly.

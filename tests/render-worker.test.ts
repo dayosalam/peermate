@@ -7,7 +7,7 @@ vi.mock('../src/repositories/index.js', () => ({
 }))
 vi.mock('../src/db/minio.js', () => ({ getMedia: vi.fn(), putMedia: vi.fn() }))
 
-const { toStoryboard } = await import('../src/workers/render.worker.js')
+const { toRenderInput, toStoryboard } = await import('../src/workers/render.worker.js')
 
 function scene(visual: JobScene['visual'], narration = 'A beat.'): JobScene {
   return { narration, visual, source: 'CVE575_wk4.pdf, p.8' }
@@ -22,6 +22,29 @@ interface Board {
 }
 
 describe('turning a stored job into a storyboard', () => {
+  it('asks the isolated renderer to plan a whiteboard lesson from fetched PDFs', () => {
+    const request = toRenderInput(
+      {
+        ...job([scene({ kind: 'title', text: 'Shear' })]),
+        topic: 'shear force',
+        materials: [{ mediaKey: 'doc/wk4', fileName: 'CVE575_wk4.pdf', pages: [8] }],
+      },
+      new Map([['doc/wk4', '/tmp/work/0.pdf']]),
+    )
+
+    expect(request).toEqual({
+      kind: 'whiteboard-request',
+      course: 'CVE575',
+      topic: 'shear force',
+      materials: [{ path: '/tmp/work/0.pdf', fileName: 'CVE575_wk4.pdf', pages: [8] }],
+    })
+  })
+
+  it('falls back to the legacy storyboard if no selected PDF can be fetched', () => {
+    const source = job([scene({ kind: 'title', text: 'Shear' })])
+    expect(toRenderInput(source, new Map())).toEqual(toStoryboard(source, new Map()))
+  })
+
   it('points a cited page at the file that was fetched for it', () => {
     const board = toStoryboard(
       job([scene({ kind: 'slide', mediaKey: 'doc/wk4', fileName: 'CVE575_wk4.pdf', page: 8 })]),

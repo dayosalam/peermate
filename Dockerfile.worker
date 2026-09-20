@@ -23,7 +23,7 @@ COPY --from=build /app/dist ./dist
 # render/ keeps its own dependencies and its dev toolchain: the worker starts it as a
 # subprocess, which is what keeps a 16-second render outside the agent's budget.
 COPY render/package*.json ./render/
-RUN cd render && npm ci
+RUN cd render && npm ci --include=dev
 COPY render ./render
 
 CMD ["node", "dist/render-main.js"]

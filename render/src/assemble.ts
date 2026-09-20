@@ -24,25 +24,39 @@ export async function segment(
 ): Promise<void> {
   await run('ffmpeg', [
     '-y',
-    '-loop', '1',
-    '-i', imagePath,
+    '-loop',
+    '1',
+    '-i',
+    imagePath,
     // Seeking the audio input, not the output: this is the slice of the narration
     // that belongs to this caption.
-    '-ss', fromSec.toFixed(3),
-    '-i', audioPath,
-    '-c:v', 'libx264',
+    '-ss',
+    fromSec.toFixed(3),
+    '-i',
+    audioPath,
+    '-c:v',
+    'libx264',
     // Still frames: this raises quality at a fraction of the bitrate motion would need.
-    '-tune', 'stillimage',
-    '-crf', '28',
-    '-preset', 'medium',
+    '-tune',
+    'stillimage',
+    '-crf',
+    '28',
+    '-preset',
+    'medium',
     // 2fps, not 25. Nothing moves, and the keyframe interval is what actually decides
     // the file size for static content.
-    '-r', '2',
-    '-pix_fmt', 'yuv420p',
-    '-c:a', 'aac',
-    '-b:a', '48k',
-    '-ac', '1',
-    '-t', seconds.toFixed(3),
+    '-r',
+    '2',
+    '-pix_fmt',
+    'yuv420p',
+    '-c:a',
+    'aac',
+    '-b:a',
+    '48k',
+    '-ac',
+    '1',
+    '-t',
+    seconds.toFixed(3),
     out,
   ])
 }
@@ -59,11 +73,54 @@ export async function concat(segments: string[], dir: string, out: string): Prom
   await writeFile(list, segments.map((path) => `file '${path}'`).join('\n'))
   await run('ffmpeg', [
     '-y',
-    '-f', 'concat',
-    '-safe', '0',
-    '-i', list,
-    '-c', 'copy',
-    '-movflags', '+faststart',
+    '-f',
+    'concat',
+    '-safe',
+    '0',
+    '-i',
+    list,
+    '-c',
+    'copy',
+    '-movflags',
+    '+faststart',
+    out,
+  ])
+}
+
+/** Encodes a numbered PNG sequence with one narration track. */
+export async function animate(
+  pattern: string,
+  fps: number,
+  audioPath: string,
+  seconds: number,
+  out: string,
+): Promise<void> {
+  await run('ffmpeg', [
+    '-y',
+    '-framerate',
+    String(fps),
+    '-i',
+    pattern,
+    '-i',
+    audioPath,
+    '-c:v',
+    'libx264',
+    '-crf',
+    '25',
+    '-preset',
+    'medium',
+    '-pix_fmt',
+    'yuv420p',
+    '-c:a',
+    'aac',
+    '-b:a',
+    '64k',
+    '-ac',
+    '1',
+    '-t',
+    seconds.toFixed(3),
+    '-movflags',
+    '+faststart',
     out,
   ])
 }

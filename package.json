@@ -11,6 +11,7 @@
     "start": "node dist/index.js",
     "build": "tsc -p tsconfig.json",
     "render": "npm --prefix render run render --",
+    "video:test": "npm --prefix render run explain --",
     "typecheck": "tsc -p tsconfig.test.json",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -1,0 +1,80 @@
+{
+  "title": "How information moves",
+  "course": "TEST 101",
+  "scenes": [
+    {
+      "narration": "Information begins as an input. A process transforms it, and the result becomes an output.",
+      "visual": {
+        "kind": "whiteboard",
+        "carry": false,
+        "actions": [
+          {
+            "type": "write",
+            "text": "Information flow",
+            "x": 0.05,
+            "y": 0.08,
+            "size": 46,
+            "color": "#172033",
+            "at": 0.02,
+            "duration": 0.12
+          },
+          {
+            "type": "box",
+            "x": 0.05,
+            "y": 0.32,
+            "width": 0.2,
+            "height": 0.26,
+            "label": "Input",
+            "color": "#2563eb",
+            "at": 0.15,
+            "duration": 0.14
+          },
+          {
+            "type": "arrow",
+            "fromX": 0.27,
+            "fromY": 0.45,
+            "toX": 0.42,
+            "toY": 0.45,
+            "label": null,
+            "color": "#dc2626",
+            "at": 0.32,
+            "duration": 0.12
+          },
+          {
+            "type": "circle",
+            "x": 0.55,
+            "y": 0.45,
+            "radius": 0.12,
+            "label": "Process",
+            "color": "#7c3aed",
+            "at": 0.46,
+            "duration": 0.16
+          },
+          {
+            "type": "arrow",
+            "fromX": 0.68,
+            "fromY": 0.45,
+            "toX": 0.78,
+            "toY": 0.45,
+            "label": null,
+            "color": "#dc2626",
+            "at": 0.65,
+            "duration": 0.12
+          },
+          {
+            "type": "box",
+            "x": 0.79,
+            "y": 0.32,
+            "width": 0.16,
+            "height": 0.26,
+            "label": "Output",
+            "color": "#16a34a",
+            "at": 0.8,
+            "duration": 0.14
+          }
+        ]
+      },
+      "source": "synthetic test fixture"
+    }
+  ]
+}

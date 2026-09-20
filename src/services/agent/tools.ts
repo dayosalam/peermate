@@ -406,7 +406,7 @@ const tools: Tool[] = [
   {
     name: 'render_explainer',
     description:
-      "Build a narrated video walkthrough of a topic from the lecturer's own slides, and send it when it is ready. Use when a student asks to be *shown* something, asks for a video, or says reading is not working for them. Takes minutes, not seconds — they are told it is coming and kept updated. For a plain spoken explanation, use explain_topic instead.",
+      "Build an animated, narrated whiteboard walkthrough grounded in the student's course PDFs, and send it when ready. Use for natural requests such as 'make a video explaining shear force from CVE 575', 'show me how this works', 'turn these notes into a video', or when reading is not working for them. Takes minutes, not seconds — they are told it is coming and kept updated. For a plain written or spoken explanation, use explain_topic instead.",
     tier: 'read',
     parameters: z.object({
       course: z.string().describe('Course code the topic belongs to.'),

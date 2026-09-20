@@ -35,6 +35,24 @@ export class StoryboardService {
       visual: visualFor(scene, byName, explainer.title),
       source: describe(scene),
     }))
+    const citedPages = new Map<string, Set<number>>()
+    for (const scene of explainer.scenes) {
+      if (!scene.fileName) continue
+      const pages = citedPages.get(scene.fileName) ?? new Set<number>()
+      if (scene.page) pages.add(scene.page)
+      citedPages.set(scene.fileName, pages)
+    }
+    const materials = shelf
+      .filter((file) => citedPages.has(file.fileName) && renderable(file))
+      .filter(
+        (file, index, files) =>
+          files.findIndex((item) => item.mediaKey === file.mediaKey) === index,
+      )
+      .map((file) => ({
+        mediaKey: file.mediaKey,
+        fileName: file.fileName,
+        pages: [...(citedPages.get(file.fileName) ?? [])].sort((a, b) => a - b),
+      }))
 
     const job: RenderJob = {
       key: keyFor(user.phone, courseKey, topic),
@@ -45,6 +63,7 @@ export class StoryboardService {
       topic,
       title: explainer.title,
       scenes,
+      materials,
       status: 'pending',
       attempts: 0,
       lastError: null,
