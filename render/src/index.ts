@@ -6,8 +6,9 @@ import { download, encodeForDelivery, stitch } from './network.js'
 import { cues } from './captions.js'
 import { durationOf, narrate } from './narrate.js'
 import { frame, prepare } from './slides.js'
-import { WHITEBOARD_FPS, whiteboardFrame } from './whiteboard.js'
+import { loadWhiteboardAssets, WHITEBOARD_FPS, whiteboardFrame } from './whiteboard.js'
 import { StoryboardSchema, type Rendered, type Storyboard } from './storyboard.js'
+import { renderScriptedFrames, SCRIPTED_FPS } from './scripted.js'
 
 /**
  * What WhatsApp will carry as a video in the chat.
@@ -44,6 +45,7 @@ export async function render(
   }
 
   try {
+    await loadWhiteboardAssets()
     const clips: string[] = []
     let completedWhiteboardActions: import('./storyboard.js').WhiteboardAction[] = []
 
@@ -58,6 +60,22 @@ export async function render(
       step(`narrated scene ${index + 1} of ${storyboard.scenes.length}`)
 
       const lines = cues(scene.narration, spoken)
+
+      if (scene.visual.kind === 'scripted') {
+        const frames = `${stem}-frames`
+        await mkdir(frames)
+        await renderScriptedFrames(
+          { actions: scene.visual.actions, source: scene.source },
+          spoken,
+          frames,
+        )
+        const clip = `${stem}-scene.mp4`
+        await animate(join(frames, '%06d.png'), SCRIPTED_FPS, audio, spoken, clip)
+        clips.push(clip)
+        completedWhiteboardActions = []
+        step(`scripted scene ${index + 1} of ${storyboard.scenes.length}`)
+        continue
+      }
 
       if (scene.visual.kind === 'whiteboard') {
         const frames = `${stem}-frames`

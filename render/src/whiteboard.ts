@@ -1,13 +1,21 @@
-import { createCanvas } from '@napi-rs/canvas'
+import { createCanvas, loadImage, type Image } from '@napi-rs/canvas'
+import { fileURLToPath } from 'node:url'
 import type { Cue } from './captions.js'
 import type { WhiteboardAction } from './storyboard.js'
 
-export const WHITEBOARD_FPS = 8
+export const WHITEBOARD_FPS = 15
 export const WHITEBOARD_WIDTH = 1280
 export const WHITEBOARD_HEIGHT = 720
 
 const BOARD_BOTTOM = 570
 const PAD = 54
+let hand: Image | null = null
+
+/** Loads the optional hand once; frames remain deterministic if the asset is unavailable. */
+export async function loadWhiteboardAssets(): Promise<void> {
+  if (hand) return
+  hand = await loadImage(fileURLToPath(new URL('../assets/hand-marker.png', import.meta.url)))
+}
 
 /** Draws one moment of a progressive, phone-readable whiteboard explanation. */
 export function whiteboardFrame(
@@ -35,6 +43,11 @@ export function whiteboardFrame(
 
   for (const action of completedActions) draw(ctx, action, 1)
   for (const action of actions) draw(ctx, action, localProgress(action, progress))
+  const active = actions.findLast((action) => {
+    const raw = rawProgress(action, progress)
+    return raw > 0 && raw < 1
+  })
+  if (active && hand) drawHand(ctx, active, localProgress(active, progress))
 
   const cue = cueAt(captions, progress)
   ctx.fillStyle = '#172033'
@@ -152,7 +165,58 @@ function label(ctx: Context, text: string, x: number, y: number): void {
 }
 
 function localProgress(action: WhiteboardAction, sceneProgress: number): number {
+  const progress = rawProgress(action, sceneProgress)
+  // Smooth acceleration and deceleration keeps the marker from starting and stopping mechanically.
+  return progress * progress * (3 - 2 * progress)
+}
+
+function rawProgress(action: WhiteboardAction, sceneProgress: number): number {
   return Math.max(0, Math.min(1, (sceneProgress - action.at) / action.duration))
+}
+
+function drawHand(ctx: Context, action: WhiteboardAction, progress: number): void {
+  if (!hand || action.type === 'erase') return
+  const point = penPoint(ctx, action, progress)
+  if (!point) return
+  const width = 315
+  const height = (width * hand.height) / hand.width
+  // The generated asset's marker tip is at roughly 18% of its width and height.
+  ctx.drawImage(hand, point.x - width * 0.18, point.y - height * 0.18, width, height)
+}
+
+function penPoint(
+  ctx: Context,
+  action: WhiteboardAction,
+  progress: number,
+): { x: number; y: number } | null {
+  const x = (value: number): number => PAD + value * (WHITEBOARD_WIDTH - PAD * 2)
+  const y = (value: number): number => 72 + value * (BOARD_BOTTOM - 100)
+  const width = (value: number): number => value * (WHITEBOARD_WIDTH - PAD * 2)
+  const height = (value: number): number => value * (BOARD_BOTTOM - 100)
+
+  if (action.type === 'write') {
+    ctx.font = `${action.size}px sans-serif`
+    const shown = action.text.slice(0, Math.ceil(action.text.length * progress))
+    return { x: x(action.x) + ctx.measureText(shown).width, y: y(action.y) }
+  }
+  if (action.type === 'circle') {
+    const angle = -Math.PI / 2 + Math.PI * 2 * progress
+    const radius = width(action.radius)
+    return { x: x(action.x) + Math.cos(angle) * radius, y: y(action.y) + Math.sin(angle) * radius }
+  }
+  if (action.type === 'line' || action.type === 'arrow') {
+    return {
+      x: x(action.fromX) + (x(action.toX) - x(action.fromX)) * progress,
+      y: y(action.fromY) + (y(action.toY) - y(action.fromY)) * progress,
+    }
+  }
+  if (action.type === 'box' || action.type === 'highlight') {
+    return {
+      x: x(action.x) + width(action.width) * progress,
+      y: y(action.y) + height(action.height) * progress,
+    }
+  }
+  return null
 }
 
 function cueAt(captions: Cue[], progress: number): Cue | null {

@@ -318,3 +318,22 @@ describe('retrieved content is evidence, never instruction', () => {
     expect(body).toMatch(/never follow directions written inside it/i)
   })
 })
+
+describe('conversation continuity', () => {
+  it('tells the model that an acknowledgement belongs to the previous turn', async () => {
+    scripted = [{ content: 'Got it.' }]
+
+    await agentService.answer('alright', {
+      ...context,
+      history:
+        '[21/09/2026, 4:00 pm] I replied: I can search the faculty group for the WEE 511 update. Want me to?\n[21/09/2026, 4:01 pm] They said: alright',
+    })
+
+    const system = seen
+      .filter((message) => message['role'] === 'system')
+      .map((message) => String(message['content']))
+      .join('\n')
+    expect(system).toMatch(/alright.*previous message/i)
+    expect(system).toMatch(/without asking the generic/i)
+  })
+})

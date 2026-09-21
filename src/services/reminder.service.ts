@@ -32,6 +32,13 @@ const LEAD_MINUTES: Record<string, number[]> = {
   deadline: [24 * 60],
 }
 
+const CLASS_KINDS = new Set(['lecture', 'tutorial', 'practical'])
+
+function leadMinutes(kind: string, student: User): number[] {
+  if (CLASS_KINDS.has(kind)) return [student.classReminderMinutes ?? 45]
+  return LEAD_MINUTES[kind] ?? []
+}
+
 /**
  * Fires anything whose lead time falls inside this window.
  *
@@ -205,7 +212,7 @@ export class ReminderService {
 
     for (const entry of entries) {
       if (!entry.time) continue
-      for (const lead of LEAD_MINUTES[entry.kind] ?? []) {
+      for (const lead of leadMinutes(entry.kind, student)) {
         const at = this.nextOccurrence(entry, now)
         if (!at) continue
         if (!within(at, now, lead)) continue
@@ -237,7 +244,7 @@ export class ReminderService {
 
     for (const item of items) {
       if (!item.date) continue
-      for (const lead of LEAD_MINUTES[item.eventType] ?? []) {
+      for (const lead of leadMinutes(item.eventType, student)) {
         // Without a stated time, treat it as the start of the working day rather than
         // midnight — a "day before" reminder at 00:01 is technically a day before and
         // practically useless.

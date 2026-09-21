@@ -31,6 +31,8 @@ const storyboard = request
   ? await planFromPdfs(
       request.materials,
       request.topic ?? `A concise overview of ${request.course}`,
+      undefined,
+      request.mode ?? 'structured',
     )
   : supplied
 
@@ -48,6 +50,7 @@ interface WhiteboardRequest {
   kind: 'whiteboard-request'
   course: string
   topic: string | null
+  mode?: 'structured' | 'scripted'
   materials: Array<{ path: string; fileName: string; pages?: number[] }>
 }
 
@@ -58,6 +61,7 @@ function isWhiteboardRequest(value: unknown): value is WhiteboardRequest {
     candidate.kind === 'whiteboard-request' &&
     typeof candidate.course === 'string' &&
     (typeof candidate.topic === 'string' || candidate.topic === null) &&
+    (candidate.mode === undefined || candidate.mode === 'structured' || candidate.mode === 'scripted') &&
     Array.isArray(candidate.materials) &&
     candidate.materials.length > 0 &&
     candidate.materials.every(

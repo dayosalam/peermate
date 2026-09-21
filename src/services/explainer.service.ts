@@ -4,6 +4,7 @@ import { config } from '../config.js'
 import { logger } from '../core/logger.js'
 import type { User } from '../models/index.js'
 import { courseDisplay } from '../utils/courses.js'
+import { similarity } from '../utils/similarity.js'
 import { getOpenAI } from './openai.client.js'
 import { type Candidate, retrievalService } from './retrieval.service.js'
 import { format, sample } from './material.js'
@@ -90,13 +91,16 @@ export class ExplainerService {
     courseKey: string,
     topic: string | null,
     shape: Shape = 'spoken',
+    sourceHint: string | null = null,
   ): Promise<Explainer | null> {
     // A named topic is searched for; "explain this course" takes the material as it
     // stands. Searching on an empty topic returns whatever the embedding of nothing
     // happens to be near, which is not the same as everything.
-    const found = topic
-      ? await retrievalService.search(topic, [courseKey], user.groupJids, user.phone)
-      : await retrievalService.material(courseKey, user.groupJids)
+    const found = sourceHint
+      ? await this.fromNamedSource(courseKey, user, sourceHint)
+      : topic
+        ? await retrievalService.search(topic, [courseKey], user.groupJids, user.phone)
+        : await retrievalService.material(courseKey, user.groupJids)
 
     const readable = found.filter((chunk) => chunk.readVia !== 'none')
     if (readable.length === 0) return null
@@ -105,6 +109,27 @@ export class ExplainerService {
     return script
       ? { ...script, scenes: script.scenes.map((scene) => cite(scene, readable)) }
       : null
+  }
+
+  /** A named note is a boundary: never fill its gaps from a different PDF. */
+  private async fromNamedSource(
+    courseKey: string,
+    user: User,
+    sourceHint: string,
+  ): Promise<Candidate[]> {
+    const material = await retrievalService.material(courseKey, user.groupJids)
+    const names = [...new Set(material.map((chunk) => chunk.fileName).filter(Boolean))] as string[]
+    let best: string | null = null
+    let score = 0
+    for (const name of names) {
+      const next = similarity(sourceHint, name)
+      if (next > score) {
+        best = name
+        score = next
+      }
+    }
+    if (!best || score < 0.35) return []
+    return material.filter((chunk) => chunk.fileName === best)
   }
 
   private async script(

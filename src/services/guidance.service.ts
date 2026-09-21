@@ -113,14 +113,15 @@ async function listening({ user }: Context): Promise<string> {
   }
 
   const reading = live.length
-    ? `*Reading ${live.length} group${live.length === 1 ? '' : 's'}:*\n${live
+    ? `*I'm in ${live.length} group${live.length === 1 ? '' : 's'} with you:*\n${live
         .map(
-          (group) => `• ${group.name ?? group.chatJid} → ${group.defaultCourse ?? 'no course set'}`,
+          (group) =>
+            `• ${group.name ?? 'Unnamed group'} → ${group.purpose ?? 'purpose not provided yet'}`,
         )
         .join('\n')}`
     : `I'm not reading any group yet.`
 
-  return `${reading}\n\nYou can ask about anything shared after I joined. A course label helps organize it but is not required.`
+  return `${reading}\n\nWhich of these groups are relevant to your courses? You can tell me, for example, *“Engineering 400 Level is for all my final-year courses”* or *“CVE 575 Class is for CVE 575.”* I can still remember everything shared after I joined even when a group has no single course label.`
 }
 
 /**
@@ -131,7 +132,7 @@ async function listening({ user }: Context): Promise<string> {
  */
 async function approving({ user }: Context): Promise<string> {
   void user
-  return `Add me to a group and I begin learning new messages immediately. I post one disclosure in the room and confirm privately with whoever added me.
+  return `Add me to a group and I begin learning new messages immediately. I never post in the room; I confirm privately with a user who already chats with me.
 
 No approval or course code is required. Current members can ask me privately about what was shared after I joined.`
 }

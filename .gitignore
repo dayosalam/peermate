@@ -12,6 +12,7 @@
 # Dependencies and generated output
 node_modules/
 **/node_modules/
+**/.scripted-venv/
 dist/
 build/
 coverage/

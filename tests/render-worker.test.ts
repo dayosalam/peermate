@@ -36,8 +36,23 @@ describe('turning a stored job into a storyboard', () => {
       kind: 'whiteboard-request',
       course: 'CVE575',
       topic: 'shear force',
+      mode: 'structured',
       materials: [{ path: '/tmp/work/0.pdf', fileName: 'CVE575_wk4.pdf', pages: [8] }],
     })
+  })
+
+  it('carries scripted mode into the isolated renderer request', () => {
+    const request = toRenderInput(
+      {
+        ...job([scene({ kind: 'title', text: 'Shear' })]),
+        topic: 'shear force',
+        renderMode: 'scripted',
+        materials: [{ mediaKey: 'doc/wk4', fileName: 'CVE575_wk4.pdf', pages: [8] }],
+      },
+      new Map([['doc/wk4', '/tmp/work/0.pdf']]),
+    )
+
+    expect(request).toMatchObject({ kind: 'whiteboard-request', mode: 'scripted' })
   })
 
   it('falls back to the legacy storyboard if no selected PDF can be fetched', () => {

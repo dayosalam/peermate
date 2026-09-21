@@ -2,7 +2,7 @@ import type { WAMessageKey } from '@whiskeysockets/baileys'
 import { GroupSendForbidden } from '../core/errors.js'
 import { logger } from '../core/logger.js'
 import { getMedia } from '../db/minio.js'
-import { isBroadcastJid, isGroupJid } from '../whatsapp/jid.js'
+import { isBroadcastJid, isGroupJid, isUserJid } from '../whatsapp/jid.js'
 import { getSocket, whenOpen } from '../whatsapp/socket.js'
 import { VOICE_MIME } from './tts.service.js'
 
@@ -28,7 +28,7 @@ export class NotifierService {
    * Best-effort: never let a presence update break the reply it precedes.
    */
   async showTyping(jid: string): Promise<void> {
-    if (isGroupJid(jid) || isBroadcastJid(jid)) return
+    if (!isUserJid(jid)) return
     try {
       await getSocket().sendPresenceUpdate('composing', jid)
     } catch (error) {
@@ -51,10 +51,12 @@ export class NotifierService {
       return await work()
     } finally {
       clearInterval(timer)
-      try {
-        await getSocket().sendPresenceUpdate('paused', jid)
-      } catch {
-        // The reply itself clears the indicator, so this is cosmetic.
+      if (isUserJid(jid)) {
+        try {
+          await getSocket().sendPresenceUpdate('paused', jid)
+        } catch {
+          // The reply itself clears the indicator, so this is cosmetic.
+        }
       }
     }
   }
@@ -204,7 +206,10 @@ export class NotifierService {
     logger.info({ jid, bytes: audio.length }, 'voice note sent')
   }
 
-  /** Never retried — sending to a non-person is a bug, not a transient failure. */
+  /**
+   * Outbound uses an allow-list, not a block-list. WhatsApp can introduce more
+   * non-person address types; only a phone JID or LID is ever a valid recipient.
+   */
   private assertNotGroup(jid: string): void {
     if (isGroupJid(jid)) {
       throw new GroupSendForbidden(`refused to send into group ${jid} — Peermate never posts`)
@@ -212,6 +217,9 @@ export class NotifierService {
     // Sending here would publish a Status update to the account's contacts.
     if (isBroadcastJid(jid)) {
       throw new GroupSendForbidden(`refused to send to broadcast ${jid} — Peermate never posts`)
+    }
+    if (!isUserJid(jid)) {
+      throw new GroupSendForbidden(`refused to send to non-user ${jid} — Peermate only sends DMs`)
     }
   }
 }

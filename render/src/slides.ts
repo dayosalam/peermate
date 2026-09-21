@@ -35,7 +35,9 @@ export interface Prepared {
   title: string | null
 }
 
-export async function prepare(visual: Exclude<Visual, { kind: 'whiteboard' }>): Promise<Prepared> {
+export async function prepare(
+  visual: Exclude<Visual, { kind: 'whiteboard' } | { kind: 'scripted' }>,
+): Promise<Prepared> {
   if (visual.kind === 'title') return { image: null, title: visual.text }
 
   // A backdrop, never content, so there is nothing to crop to and nothing to be wrong

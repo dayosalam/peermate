@@ -54,6 +54,8 @@ export const RenderJobSchema = z.object({
   courseKey: z.string(),
   topic: z.string().nullable(),
   title: z.string(),
+  /** Explicit user-selected renderer; Peermate does not auto-rank the two styles yet. */
+  renderMode: z.enum(['structured', 'scripted']).default('structured'),
   scenes: z.array(JobSceneSchema),
   /** PDFs selected by grounded retrieval for the whiteboard planner. */
   materials: z.array(JobMaterialSchema).default([]),

@@ -208,6 +208,7 @@ describe('asking what it is actually set up to read', () => {
     const answer = await guidanceService.answer(student, 'what group have you been approved for?')
     expect(answer).toMatch(/Peermate/)
     expect(answer).toMatch(/CVE 575/)
+    expect(answer).toMatch(/which of these groups are relevant/i)
   })
 
   /** A course with no group behind it is a course they will never hear about. */
@@ -242,7 +243,7 @@ describe('asking what it is actually set up to read', () => {
     ]
 
     const answer = await guidanceService.answer(student, 'which groups are you reading?')
-    expect(answer).toMatch(/course label helps organize/i)
+    expect(answer).toMatch(/which of these groups are relevant/i)
     expect(answer).not.toMatch(/Nothing connected yet for STA 202/)
   })
 

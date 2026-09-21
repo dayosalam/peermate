@@ -245,7 +245,9 @@ export class DmService {
         message.chatJid,
         message.type === 'image' || message.type === 'audio'
           ? "I couldn't make anything out of that. Could you send it again, or type it out?"
-          : 'Ask me something like *"when is the CSC 301 test?"*',
+          : message.type === 'document'
+            ? `I saved *${message.fileName ?? 'that file'}*. Tell me what you want from it — a summary, questions, an explanation, or a video walkthrough.`
+            : 'Ask me something like *"when is the CSC 301 test?"*',
       )
       return
     }

@@ -14,7 +14,9 @@ Generate and inspect only the teaching plan first:
 ```bash
 npm run video:test -- \
   --file CVE575_ClassNotes_1.pdf \
-  --topic "How proof of work reaches consensus" \
+  --pages 13-15 \
+  --mode scripted \
+  --topic "Explain the final three pages clearly, page by page" \
   --plan-only
 ```
 
@@ -31,6 +33,28 @@ npm run video:test -- \
 ```
 
 `--out` remains available when a different destination is specifically needed.
+`--pages 13-15` restricts both planning and rendering to that inclusive page range,
+which is useful for controlled quality tests. Whiteboard motion renders at 15 FPS with
+eased strokes and a hand/marker overlay that follows the active drawing point.
+
+`--mode scripted` enables the denser Python/Pillow renderer. The model emits only a
+validated scene DSL; it cannot provide executable Python. Peermate's fixed engine maps
+approved primitives (`title`, `write`, `bullets`, `line`, `arrow`, `box`, `circle`,
+`highlight`, `road`, and `layers`) to progressive strokes. It distributes drawing
+across the narration, rejects more than 0.5 seconds of visual inactivity, checks board
+bounds and major collisions, and creates silent scene GIFs in the preview directory.
+
+WhatsApp video requests use scripted mode by default. The agent stores the selected
+mode on the durable render job and the worker passes it to this isolated planner.
+Structured mode remains available when a user explicitly requests the simpler style.
+
+Install its pinned runtime once and point the renderer at it:
+
+```bash
+python3 -m venv render/.scripted-venv
+render/.scripted-venv/bin/pip install -r render/python/requirements.txt
+export PEERMATE_PYTHON="$PWD/render/.scripted-venv/bin/python"
+```
 
 `ffmpeg` and `ffprobe` must be on `PATH`. `OPENAI_API_KEY` builds the grounded teaching
 plan. Livepeer provides narration by default and performs scene upload, stitching,

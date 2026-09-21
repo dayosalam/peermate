@@ -122,7 +122,7 @@ const tools: Tool[] = [
   {
     name: 'search_archive',
     description:
-      "Search everything said in the student's groups and every file shared there — messages, voice note transcripts, PDF contents. Use for any question about what was said, what a document contains, or what happened. Returns quoted evidence with provenance; cite it.",
+      "Search everything said in the student's groups and every file shared there — messages, voice note transcripts, PDF contents. Use for any question about what was said, what Peermate knows, a named person, what a document contains, or what happened. The search covers all verified groups even when old or missing course metadata is wrong. Returns quoted evidence with provenance; cite it.",
     tier: 'read',
     parameters: z.object({
       question: z.string().describe('What to look for, rewritten as a standalone question.'),
@@ -132,12 +132,21 @@ const tools: Tool[] = [
         .describe('Course code if the question is about one, otherwise null.'),
     }),
     async run(args, { user }) {
-      const question = String(args['question'] ?? '')
       const named = args['course'] as string | null | undefined
-      const scoped = await resolveCourse(named ?? undefined, user)
+      const question = [
+        String(args['question'] ?? ''),
+        named ? `The course the student named is ${named}.` : null,
+      ]
+        .filter(Boolean)
+        .join('\n')
+      // Course classification is fallible metadata, not an access boundary. The
+      // question already carries the named course, so semantic and literal search
+      // should inspect every message in the student's verified groups. Filtering by
+      // a predicted course hid the exact WEE 511 message after an older parser had
+      // misfiled it as RING400.
       const candidates = await retrievalService.search(
         question,
-        scoped ? [scoped] : [],
+        [],
         accessibleGroups(user),
         // Their own uploads count as something they can ask about. Anything they sent
         // in a DM — a photographed timetable, a past paper a friend forwarded them —
@@ -343,7 +352,7 @@ const tools: Tool[] = [
   {
     name: 'get_course_info',
     description:
-      'What Peermate knows about one course: whether it is reading a group for it, the weekly pattern, what is coming up, how many files it holds.',
+      'Account-style summary for one specific course: stored lecturer, weekly timetable, structured announcements and files. Do not use for "what do you know", what somebody said, or broad questions across courses; use search_archive and get_announcements for those.',
     tier: 'read',
     parameters: z.object({ course: z.string() }),
     async run(args, { user }) {
@@ -369,7 +378,7 @@ const tools: Tool[] = [
   {
     name: 'explain_topic',
     description:
-      'Explain a topic aloud, from the lecturer\'s own files, and send it as a voice note they can play on the way in. Use for "explain X to me", "I don\'t understand Y", "break down chapter 4". Not for dates, deadlines or what was announced \u2014 this teaches the subject, it does not report news.',
+      'Create a written explanation plus AUDIO VOICE NOTE from the lecturer\'s files. Use only when the student asks for a normal explanation or something to listen to. NEVER use for a visual, video, animation, whiteboard, drawing, walkthrough, or "show me" request; those always use render_explainer.',
     tier: 'read',
     parameters: z.object({
       course: z.string().describe('Course code the topic belongs to.'),
@@ -377,13 +386,18 @@ const tools: Tool[] = [
         .string()
         .nullable()
         .describe('What to explain, in their words. Null for the material as a whole.'),
+      source: z
+        .string()
+        .nullable()
+        .describe('Exact filename or note label they named, otherwise null.'),
     }),
     async run(args, { user, jid }) {
       const key = await resolveCourse(args['course'] as string, user)
       if (!key) return 'That is not one of their courses, and no group covers it.'
 
       const topic = args['topic'] ? String(args['topic']) : null
-      const explainer = await explainerService.explain(user, key, topic)
+      const source = args['source'] ? String(args['source']) : null
+      const explainer = await explainerService.explain(user, key, topic, 'spoken', source)
       if (!explainer || explainer.scenes.length === 0) {
         return 'There are no readable files for that course, so there is nothing to explain from. Say so, and offer to explain it if they send the slides.'
       }
@@ -406,7 +420,7 @@ const tools: Tool[] = [
   {
     name: 'render_explainer',
     description:
-      "Build an animated, narrated whiteboard walkthrough grounded in the student's course PDFs, and send it when ready. Use for natural requests such as 'make a video explaining shear force from CVE 575', 'show me how this works', 'turn these notes into a video', or when reading is not working for them. Takes minutes, not seconds — they are told it is coming and kept updated. For a plain written or spoken explanation, use explain_topic instead.",
+      "Create the VIDEO/VISUAL result: an animated, narrated whiteboard walkthrough grounded in the student's course PDFs. This is the only tool for video, visual, animation, whiteboard, drawing, walkthrough, 'show me', or 'turn these notes into a video'. Preserve an exact filename or note name in topic so retrieval targets that source. Takes minutes and sends progress updates. For audio-only or plain text use explain_topic.",
     tier: 'read',
     parameters: z.object({
       course: z.string().describe('Course code the topic belongs to.'),
@@ -414,13 +428,26 @@ const tools: Tool[] = [
         .string()
         .nullable()
         .describe('What to explain, in their words. Null for the material as a whole.'),
+      source: z
+        .string()
+        .nullable()
+        .describe(
+          'Exact filename or note label when the student names one, e.g. "class note 1"; otherwise null.',
+        ),
+      style: z
+        .enum(['structured', 'scripted'])
+        .nullable()
+        .describe(
+          'Use scripted for the handwritten Python whiteboard style. Use structured only when the student explicitly asks for the simpler diagram style. Null means scripted.',
+        ),
     }),
     async run(args, { user, jid }) {
       const key = await resolveCourse(args['course'] as string, user)
       if (!key) return 'That is not one of their courses, and no group covers it.'
 
       const topic = args['topic'] ? String(args['topic']) : null
-      const explainer = await explainerService.explain(user, key, topic, 'video')
+      const source = args['source'] ? String(args['source']) : null
+      const explainer = await explainerService.explain(user, key, topic, 'video', source)
       if (!explainer || explainer.scenes.length === 0) {
         return 'There are no readable files for that course, so there is nothing to build from. Say so, and offer to do it if they send the slides.'
       }
@@ -430,10 +457,61 @@ const tools: Tool[] = [
       // while it does.
       await notifierService.sendText(jid, explainerService.written(explainer, key))
 
-      const { fresh } = await storyboardService.enqueue(user, key, topic, explainer, jid)
+      const { fresh } = await storyboardService.enqueue(
+        user,
+        key,
+        topic,
+        explainer,
+        jid,
+        args['style'] === 'structured' ? 'structured' : 'scripted',
+      )
       return fresh
         ? 'Queued the video and sent the written explanation. Tell them it is being built and they will get progress updates — do not repeat the explanation.'
         : 'That video is already being built or already exists. Say it is on the way; do not queue it again.'
+    },
+  },
+
+  {
+    name: 'list_shared_groups',
+    description:
+      'List the WhatsApp groups Peermate is actually in with this user, using verified membership. Use whenever they ask a group name, which groups Peermate joined, or what groups they share. This is the authoritative source; never infer a group from course codes.',
+    tier: 'read',
+    parameters: z.object({}),
+    async run(_args, { user }) {
+      const groups = await groupRepository.forStudent(user.groupJids)
+      if (groups.length === 0) return 'Peermate has no verified shared group with this user.'
+
+      return `<shared_groups>\n${groups
+        .map(
+          (group, index) =>
+            `${index + 1}. ${group.name ?? 'Unnamed group'} | purpose: ${group.purpose ?? 'not provided'}`,
+        )
+        .join(
+          '\n',
+        )}\n</shared_groups>\nAsk which of these groups are relevant to their courses if its purpose is not provided.`
+    },
+  },
+
+  {
+    name: 'set_group_purpose',
+    description:
+      "Store the user's natural-language description of what one shared group is for. Use when they explain that a group covers a course, several courses, a level, department notices, projects, or any other purpose. Preserve their meaning; do not reduce it to a guessed course code.",
+    tier: 'reversible',
+    parameters: z.object({
+      group: z.string().nullable().describe('Group name, or null when they share only one.'),
+      purpose: z
+        .string()
+        .min(1)
+        .describe("What the user says the group is for, in the user's terms."),
+    }),
+    async run(args, { user }) {
+      const group = await mayChange(user, await resolveGroup(args['group'] as string, user))
+      if (!group) return 'They are not in a verified group by that name, so nothing was changed.'
+
+      const purpose = String(args['purpose'] ?? '').trim()
+      if (!purpose) return 'Ask what the group is for.'
+      await groupService.setPurpose(group.chatJid, purpose)
+      return `Saved: ${group.name ?? 'that group'} is for ${purpose}. Peermate still retains all new content from it, not only messages that match this description.`
     },
   },
 
@@ -948,7 +1026,7 @@ const tools: Tool[] = [
   {
     name: 'update_settings',
     description:
-      'Change how Peermate messages them: pause, resume, mute a course, urgent only, quiet hours, digest time, add or drop a course, change their name. Pass their instruction as they said it.',
+      'Change how Peermate messages them: reminder lead time (for example 30 minutes before class), reminders on/off, pause, resume, mute a course, urgent only, quiet hours, digest time, add or drop a course, or change their name. Pass their complete instruction exactly as they said it.',
     tier: 'reversible',
     parameters: z.object({
       instruction: z

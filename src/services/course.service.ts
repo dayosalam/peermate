@@ -145,16 +145,21 @@ export class CourseService {
       resourceRepository.forCourse(key, user.groupJids),
     ])
 
-    const connected = groups.some((group) => group.defaultCourseKey === key)
+    const hasSharedGroups = groups.length > 0
+    const hasCourseEvidence = announcements.length > 0 || files.length > 0
     const lines: string[] = [`*${display}*${course?.title ? ` — ${course.title}` : ''}`]
 
     if (course?.lecturer) lines.push(`Taught by ${course.lecturer}.`)
 
-    lines.push(
-      connected
-        ? `✅ I'm reading the group for this.`
-        : `⚠️ I'm not in a group for this, so I won't hear anything about it.`,
-    )
+    if (hasCourseEvidence) {
+      lines.push(`✅ I have information about this from your shared groups.`)
+    } else if (hasSharedGroups) {
+      lines.push(
+        `I share ${groups.length} verified group${groups.length === 1 ? '' : 's'} with you. Those groups are not limited to one course, but I have no course-tagged ${display} item yet.`,
+      )
+    } else {
+      lines.push(`⚠️ I don't currently share a verified group with you.`)
+    }
 
     const weekly = schedule.filter((entry) => entry.weekday !== null)
     if (weekly.length > 0) lines.push('', `*Your timetable*`, ...weekly.map(describeWeekly))
@@ -182,8 +187,8 @@ export class CourseService {
           ? `Ask me *what's happening in ${display}* or say *${display} resources*.`
           : `Say *${display} resources* and I'll send them.`,
       )
-    } else if (connected) {
-      lines.push('', `Nothing has come up in it yet since I joined.`)
+    } else if (hasSharedGroups) {
+      lines.push('', `Ask what was said about ${display} and I'll search the full group history.`)
     }
 
     return lines.join('\n')

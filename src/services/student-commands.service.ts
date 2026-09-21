@@ -40,12 +40,16 @@ const DIGEST_ON = /^digest\s+(on|back|resume)\b/i
 const URGENT_ONLY =
   /^(only|just)\s+(the\s+)?(urgent|important|serious)|^urgent (only|stuff|things)/i
 const EVERYTHING = /^(everything|all alerts|send everything|tell me everything|all of it)$/i
+const IMPORTANT_ALERTS =
+  /\b(?:notify|alert|tell|message|ping)\s+me\b[^.?!]{0,40}\b(?:important|urgent)\b/i
 
 const QUIET = /^quiet\b/i
 const REMINDERS_OFF =
   /\b(turn|switch|set)?\s*(automatic\s+)?reminders?\s+(off|stop|disable)|\b(stop|don'?t|do not)\s+(automatically\s+)?remind/i
 const REMINDERS_ON =
   /\b(turn|switch|set)?\s*(automatic\s+)?reminders?\s+(on|start|enable)|\bautomatically\s+remind/i
+const REMINDER_LEAD =
+  /\b(?:remind(?:er|ers)?|notify|alert)\b[^.?!]{0,50}?\b(\d{1,4})\s*(minutes?|mins?|hours?|hrs?)\s+(?:before|ahead)\b/i
 
 /**
  * Demo aid, matched case-sensitively and exactly.
@@ -141,6 +145,20 @@ export class StudentCommandsService {
       await userRepository.upsert({ ...user, automaticReminders: true })
       return `Automatic reminders are on. I'll remind you about dates and deadlines I can verify from your sources.`
     }
+    const reminderLead = cleaned.match(REMINDER_LEAD)
+    if (reminderLead) {
+      const amount = Number(reminderLead[1])
+      const minutes = /^(hours?|hrs?)$/i.test(reminderLead[2] ?? '') ? amount * 60 : amount
+      if (minutes < 5 || minutes > 24 * 60) {
+        return 'Choose a class reminder between 5 minutes and 24 hours before class.'
+      }
+      await userRepository.upsert({
+        ...user,
+        automaticReminders: true,
+        classReminderMinutes: minutes,
+      })
+      return `Done — I'll remind you *${minutes >= 60 && minutes % 60 === 0 ? `${minutes / 60} hour${minutes === 60 ? '' : 's'}` : `${minutes} minutes`} before each class.`
+    }
     // Repeating must return what was actually said: re-running retrieval for "say
     // that again" can produce a different answer, which is the one thing it must not do.
     if (REPEAT.test(cleaned)) {
@@ -154,6 +172,7 @@ export class StudentCommandsService {
     if (SETTINGS.test(cleaned)) return this.settings(user, cleaned)
     if (QUIET.test(cleaned)) return this.quietHours(user, cleaned)
     if (URGENT_ONLY.test(cleaned)) return this.setLevel(user, 'urgent')
+    if (IMPORTANT_ALERTS.test(cleaned)) return this.setLevel(user, 'urgent')
     if (EVERYTHING.test(cleaned)) return this.setLevel(user, 'all')
     if (PAUSE.test(cleaned)) return this.pause(user, cleaned)
     if (RESUME.test(cleaned) || DIGEST_ON.test(cleaned)) return this.resume(user, cleaned)

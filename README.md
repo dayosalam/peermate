@@ -81,13 +81,13 @@ because other verified members may rely on them. A student can instead ask Peerm
 forget one group, which removes only that student's access to its archive.
 
 Conversation transcripts expire after 30 days. Shared group-source retention is
-operator-controlled for now and must be stated to a group before real deployment.
+operator-controlled for now and must be explained privately to users before real deployment.
 
 ### Product acceptance check
 
 Before releasing a change, validate one staged group and two test students end to end:
 
-1. Add Peermate and verify exactly one room disclosure and one private confirmation.
+1. Add Peermate and verify it remains silent in the room and sends one private confirmation to a known user.
 2. Send text, voice, image, PDF and DOCX sources; retrieve each naturally and request
    the original.
 3. Confirm neither student can retrieve the other's private DM.

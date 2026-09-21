@@ -23,6 +23,7 @@ export class StoryboardService {
     topic: string | null,
     explainer: Explainer,
     jid: string,
+    renderMode: 'structured' | 'scripted' = 'structured',
   ): Promise<{ job: RenderJob; fresh: boolean }> {
     // Only files from a group this student is in. The filename came back from their own
     // retrieval so it should already be theirs, but a second read is a second chance to
@@ -55,13 +56,14 @@ export class StoryboardService {
       }))
 
     const job: RenderJob = {
-      key: keyFor(user.phone, courseKey, topic),
+      key: keyFor(user.phone, courseKey, topic, renderMode),
       shardId: config.whatsapp.shardId,
       phone: user.phone,
       jid,
       courseKey,
       topic,
       title: explainer.title,
+      renderMode,
       scenes,
       materials,
       status: 'pending',
@@ -127,9 +129,18 @@ function renderable(file: Resource | undefined): file is Resource {
  * wants the same explanation, and rendering it a second time costs narration for a file
  * that already exists.
  */
-function keyFor(phone: string, courseKey: string, topic: string | null): string {
+function keyFor(
+  phone: string,
+  courseKey: string,
+  topic: string | null,
+  renderMode: 'structured' | 'scripted',
+): string {
   const hash = createHash('sha1')
-    .update(topic ?? 'whole-course')
+    .update(
+      renderMode === 'structured'
+        ? (topic ?? 'whole-course')
+        : `scripted:${topic ?? 'whole-course'}`,
+    )
     .digest('hex')
     .slice(0, 12)
   return `${phone}|${courseKey}|${hash}`

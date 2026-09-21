@@ -184,46 +184,53 @@ describe('who can switch a group on', () => {
   })
 })
 
-describe('who gets asked when Peermate is added', () => {
-  it('discloses in the group and confirms privately with the adder', async () => {
+describe('who gets notified when Peermate is added', () => {
+  it('confirms privately with a known adder without posting in the group', async () => {
     await groupService.register('g1@g.us', {
       subject: 'CVE 575 — 2025/26',
       addedBy: ADDER_JID,
       addedByName: 'Chidi',
     })
 
-    expect(sent).toHaveLength(2)
-    expect(sent[0]!.jid).toBe('g1@g.us')
-    expect(sent[0]!.text).toMatch(/remember what is shared/i)
-    expect(sent[1]!.jid).toBe(ADDER_JID)
-    expect(sent[1]!.text).toMatch(/connected/i)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.jid).toBe(ADDER_JID)
+    expect(sent[0]!.text).toMatch(/connected/i)
     expect(users[0]!.groupJids).toContain('g1@g.us')
   })
 
-  it('infers a course as optional metadata without creating a pending question', async () => {
+  it('does not infer a course from the group name', async () => {
     await groupService.register('g1@g.us', { subject: 'CVE 575 class', addedBy: ADDER_JID })
-    expect(stored[0]!.defaultCourse).toBe('CVE 575')
+    expect(stored[0]!.defaultCourse).toBeNull()
+    expect(stored[0]!.defaultCourseKey).toBeNull()
     expect(proposals).toHaveLength(0)
+  })
+
+  it('does not invent a course from words ending near a number', async () => {
+    await groupService.register('g1@g.us', {
+      subject: 'Engineeering 400Leve',
+      addedBy: ADDER_JID,
+    })
+    expect(stored[0]!.name).toBe('Engineeering 400Leve')
+    expect(stored[0]!.defaultCourse).toBeNull()
   })
 
   /**
    * Peermate never opens a conversation with someone who has not written to it, and it
    * no longer hands the question to anybody else. The group simply waits.
    */
-  it('still discloses and confirms when the adder has never written', async () => {
+  it('does not open a private chat with an unknown adder', async () => {
     users = []
     await groupService.register('g1@g.us', { subject: 'CVE 575 class', addedBy: ADDER_JID })
-    expect(sent).toHaveLength(2)
+    expect(sent).toHaveLength(0)
     expect(stored[0]!.status).toBe('approved')
   })
 
   // Who gets offered it afterwards is membership's decision, not this service's —
   // see tests/membership.test.ts.
 
-  it('still discloses when nobody was recorded as the adder', async () => {
+  it('stays silent when nobody was recorded as the adder', async () => {
     await groupService.register('g1@g.us', { subject: 'CVE 575 class' })
-    expect(sent).toHaveLength(1)
-    expect(sent[0]!.jid).toBe('g1@g.us')
+    expect(sent).toHaveLength(0)
   })
 
   it('starts learning immediately', async () => {
@@ -231,16 +238,16 @@ describe('who gets asked when Peermate is added', () => {
     expect(stored[0]!.status).toBe('approved')
   })
 
-  it('retries only a failed private confirmation without repeating the room notice', async () => {
+  it('retries a failed private confirmation without ever posting in the room', async () => {
     failJid = ADDER_JID
     await expect(
       groupService.register('g1@g.us', { subject: 'CVE 575 class', addedBy: ADDER_JID }),
     ).rejects.toThrow('send failed')
-    expect(sent.filter((message) => message.jid === 'g1@g.us')).toHaveLength(1)
+    expect(sent.filter((message) => message.jid === 'g1@g.us')).toHaveLength(0)
 
     failJid = null
     await groupService.retryDisclosures()
-    expect(sent.filter((message) => message.jid === 'g1@g.us')).toHaveLength(1)
+    expect(sent.filter((message) => message.jid === 'g1@g.us')).toHaveLength(0)
     expect(sent.filter((message) => message.jid === ADDER_JID)).toHaveLength(1)
   })
 })

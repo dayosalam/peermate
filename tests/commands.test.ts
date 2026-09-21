@@ -138,6 +138,14 @@ describe('being asked to be quiet', () => {
     expect(last().automaticReminders).toBe(true)
   })
 
+  it('changes how early class reminders arrive', async () => {
+    expect(await command(student(), 'make the reminder 30mins before class')).toMatch(
+      /30 minutes before each class/i,
+    )
+    expect(last().classReminderMinutes).toBe(30)
+    expect(last().automaticReminders).toBe(true)
+  })
+
   it('pauses with no end when they name none', async () => {
     await command(student(), 'stop messaging me')
     expect(last().paused).toBe(true)
@@ -178,6 +186,13 @@ describe('being asked to be quiet', () => {
     await command(student(), 'only urgent')
     expect(last().alertLevel).toBe('urgent')
     expect(last().digestPaused).toBe(false)
+  })
+
+  it('understands an opt-in request for important group alerts', async () => {
+    expect(await command(student(), 'notify me whenever something important is posted')).toMatch(
+      /tests, deadlines and venue changes/i,
+    )
+    expect(last().alertLevel).toBe('urgent')
   })
 })
 

@@ -261,6 +261,7 @@ export function toRenderInput(job: RenderJob, paths: Map<string, string>): unkno
     kind: 'whiteboard-request',
     course: job.courseKey,
     topic: job.topic,
+    mode: job.renderMode ?? 'structured',
     materials,
   }
 }

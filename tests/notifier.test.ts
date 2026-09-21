@@ -31,6 +31,12 @@ describe('NotifierService group guard', () => {
     ).rejects.toBeInstanceOf(GroupSendForbidden)
   })
 
+  it('only permits individual WhatsApp addresses', async () => {
+    await expect(notifier.sendText('unknown@future-address', 'hi')).rejects.toBeInstanceOf(
+      GroupSendForbidden,
+    )
+  })
+
   it('rejects before touching the socket or MinIO', async () => {
     // If the guard ran after the socket lookup the error would be "not connected",
     // which would mean a live process could reach sendMessage with a group JID.

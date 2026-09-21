@@ -38,6 +38,7 @@
     "chromadb": "^3.5.0",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "langsmith": "^0.10.4",
     "mammoth": "^1.12.2",
     "minio": "^8.0.4",
     "mongodb": "^6.12.0",

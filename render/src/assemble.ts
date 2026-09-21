@@ -124,3 +124,19 @@ export async function animate(
     out,
   ])
 }
+
+/** Creates a silent, compact review artifact before narration/stitching is accepted. */
+export async function gifPreview(pattern: string, fps: number, out: string): Promise<void> {
+  await run('ffmpeg', [
+    '-y',
+    '-framerate',
+    String(fps),
+    '-i',
+    pattern,
+    '-vf',
+    'fps=10,scale=640:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=192[p];[s1][p]paletteuse=dither=sierra2_4a',
+    '-loop',
+    '0',
+    out,
+  ])
+}

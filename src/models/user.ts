@@ -91,5 +91,12 @@ export const UserSchema = z.object({
    * The information is always retained; this controls only proactive delivery.
    */
   automaticReminders: z.boolean().optional(),
+  /** Personal warning time for timetable classes; exams keep their longer warnings. */
+  classReminderMinutes: z
+    .number()
+    .int()
+    .min(5)
+    .max(24 * 60)
+    .optional(),
 })
 export type User = z.infer<typeof UserSchema>

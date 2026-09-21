@@ -118,6 +118,28 @@ describe('turning a script into a render job', () => {
     expect(again.job.key).toBe(first.job.key)
   })
 
+  it('persists scripted mode and gives it a distinct idempotency key', async () => {
+    const regular = await storyboardService.enqueue(
+      student,
+      'CVE575',
+      'shear',
+      script,
+      'j@s',
+      'structured',
+    )
+    const scripted = await storyboardService.enqueue(
+      student,
+      'CVE575',
+      'shear',
+      script,
+      'j@s',
+      'scripted',
+    )
+
+    expect(scripted.job.renderMode).toBe('scripted')
+    expect(scripted.job.key).not.toBe(regular.job.key)
+  })
+
   it('treats a different topic as a different job', async () => {
     const shear = await storyboardService.enqueue(student, 'CVE575', 'shear', script, 'j@s')
     const bending = await storyboardService.enqueue(student, 'CVE575', 'bending', script, 'j@s')

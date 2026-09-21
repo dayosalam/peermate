@@ -2,7 +2,7 @@ import { config } from '../config.js'
 import { logger } from '../core/logger.js'
 import type { Authority, Group, User } from '../models/index.js'
 import { groupRepository, pendingRepository, userRepository } from '../repositories/index.js'
-import { courseDisplay, courseKey, parseCourseList } from '../utils/courses.js'
+import { courseKey } from '../utils/courses.js'
 import { jidToIdentity, jidToPhone, samePhone } from '../whatsapp/jid.js'
 import { notifierService } from './notifier.service.js'
 
@@ -15,11 +15,11 @@ export interface GroupContext {
 
 /**
  * A group is a source, not a registration gate. Joining activates learning from that
- * point onward and Peermate discloses that once in the room. Access to what it learns
+ * point onward and Peermate confirms privately with a known user. Access to what it learns
  * is still membership-scoped: being able to name a group never grants its archive.
  */
 export class GroupService {
-  /** Records and activates a group, then discloses the connection once. */
+  /** Records and activates a group, then privately confirms the connection when possible. */
   async register(chatJid: string, context: GroupContext): Promise<Group> {
     const existing = await groupRepository.findByJid(chatJid)
     if (existing) {
@@ -52,12 +52,14 @@ export class GroupService {
       return updated
     }
 
-    const guess = this.courseFromSubject(context.subject)
     const group: Group = {
       chatJid,
       name: context.subject,
-      defaultCourse: guess,
-      defaultCourseKey: courseKey(guess),
+      // A room name is identity, not reliable course metadata. Content extraction and
+      // the user's conversation with the agent can classify it later.
+      defaultCourse: null,
+      defaultCourseKey: null,
+      purpose: null,
       status: 'approved',
       // The socket that saw this group is the only one that can read it.
       shardId: config.whatsapp.shardId,
@@ -72,7 +74,7 @@ export class GroupService {
       approvedAt: new Date(),
     }
     await groupRepository.upsert(group)
-    logger.info({ chatJid, subject: context.subject, guess }, 'group connected')
+    logger.info({ chatJid, subject: context.subject }, 'group connected')
     await this.notifyConnected(group)
     return group
   }
@@ -239,11 +241,13 @@ export class GroupService {
     return updated
   }
 
-  /** "CSC 301 — 2025/26 Class" -> "CSC 301". Null when the name carries no code. */
-  private courseFromSubject(subject: string | null): string | null {
-    if (!subject) return null
-    const [first] = parseCourseList(subject)
-    return first ? (courseDisplay(first) ?? null) : null
+  async setPurpose(chatJid: string, purpose: string): Promise<Group | null> {
+    const group = await groupRepository.findByJid(chatJid)
+    if (!group) return null
+    const updated: Group = { ...group, purpose }
+    await groupRepository.upsert(updated)
+    logger.info({ chatJid }, 'group purpose set')
+    return updated
   }
 
   /**
@@ -251,34 +255,27 @@ export class GroupService {
    * one exception: they configured the bot, and this is the only way to ask.
    */
 
-  /** Announces collection once and gives the adder immediate private access. */
+  /** Records connection once and privately confirms only with a known Peermate user. */
   private async notifyConnected(group: Group): Promise<void> {
-    if (await groupRepository.claimGroupDisclosure(group.chatJid)) {
-      try {
-        await notifierService.sendText(
-          group.chatJid,
-          `👋 I'm Peermate. I've been added to help remember what is shared here — messages, files, voice notes, dates and deadlines — so current members can ask me about it privately later. I only know what is shared from now on.`,
-        )
-      } catch (error) {
-        await groupRepository.releaseGroupDisclosure(group.chatJid)
-        throw error
-      }
-    }
+    // This marker now means the connection was recorded. Peermate never posts in the
+    // room; every explanation and confirmation belongs in a user's private chat.
+    await groupRepository.claimGroupDisclosure(group.chatJid)
 
     if (group.addedBy && (await groupRepository.claimAdderNotice(group.chatJid))) {
       try {
         const where = group.name ?? 'this group'
         const identity = jidToIdentity(group.addedBy)
         const adder = identity ? await userRepository.findByPhone(identity) : null
-        if (adder) await userRepository.addGroup(adder.phone, group.chatJid)
+        if (!adder) {
+          await groupRepository.releaseAdderNotice(group.chatJid)
+          return
+        }
+        await userRepository.addGroup(adder.phone, group.chatJid)
         await notifierService.sendText(
-          adder?.jid ?? group.addedBy,
+          adder.jid,
           `📎 I'm connected to *${where}* and learning from new messages now. You can ask me privately about anything shared there; a course label is optional.`,
         )
-        logger.info(
-          { chatJid: group.chatJid, phone: adder?.phone ?? identity },
-          'confirmed group connection',
-        )
+        logger.info({ chatJid: group.chatJid, phone: adder.phone }, 'confirmed group connection')
       } catch (error) {
         await groupRepository.releaseAdderNotice(group.chatJid)
         throw error

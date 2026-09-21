@@ -170,14 +170,17 @@ async function readMedia(message: Message, log: typeof logger): Promise<void> {
 async function understand(message: Message, log: typeof logger): Promise<ProcessingStatus> {
   // Approval was checked before anything was stored, so the group exists by now.
   const group = await groupRepository.findByJid(message.chatJid)
-  const defaultCourse = group?.defaultCourse ?? null
+  // A group can cover a faculty, a level, several courses, or none. Its old single
+  // default course is retained only as legacy display metadata; feeding it into the
+  // extractor caused explicit text such as "WEE 511" to be filed as RING400.
+  const defaultCourse = null
 
   const preceding = await precedingContext(message)
 
   // A document is filed first — that half never depended on being able to read it.
   if (message.type === 'document') {
     const resource = await documentService.file(message, preceding, defaultCourse)
-    await readDocument(message, resource?.courseKey ?? group?.defaultCourseKey ?? null, log)
+    await readDocument(message, resource?.courseKey ?? null, log)
     // Batched, so a five-file upload is one heads-up rather than five.
     if (resource) resourceAlertService.queue(resource, message.senderName)
   }
@@ -205,11 +208,7 @@ async function understand(message: Message, log: typeof logger): Promise<Process
     // Every course the message mentions, so a student searching their own course
     // finds a timetable that also covered three others.
     const courses = rows.map((row) => row.courseKey).filter(Boolean)
-    await indexingService.index(
-      message,
-      content,
-      courses.length > 0 ? courses : [group?.defaultCourseKey ?? null],
-    )
+    await indexingService.index(message, content, courses.length > 0 ? courses : [null])
   }
 
   if (rows.length === 0) {

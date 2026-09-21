@@ -17,6 +17,7 @@ function withDefaults(user: User | null): User | null {
     shardId: user.shardId ?? 'default',
     mutedCourseKeys: user.mutedCourseKeys ?? [],
     automaticReminders: user.automaticReminders ?? true,
+    classReminderMinutes: user.classReminderMinutes ?? 45,
     // Absent means unscoped, and unscoped must mean nothing rather than everything:
     // a student registered before tenancy existed would otherwise match every group.
     // `npm run backfill-tenancy` fills these in from the groups that carry their

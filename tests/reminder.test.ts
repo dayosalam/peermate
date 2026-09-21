@@ -84,7 +84,9 @@ beforeEach(() => {
 describe('when a reminder fires', () => {
   it('retains dates but sends nothing when automatic reminders are disabled', async () => {
     schedule = [entry({ weekday: 3, time: '08:45', venue: 'LG7' })]
-    expect(await reminderService.runFor({ ...student, automaticReminders: false }, WED_0800)).toBe(0)
+    expect(await reminderService.runFor({ ...student, automaticReminders: false }, WED_0800)).toBe(
+      0,
+    )
     expect(sent).toHaveLength(0)
   })
 
@@ -95,6 +97,13 @@ describe('when a reminder fires', () => {
     expect(sent).toHaveLength(1)
     expect(sent[0]).toMatch(/CVE 575 lecture/)
     expect(sent[0]).toMatch(/LG7/)
+  })
+
+  it("uses the student's chosen class warning time", async () => {
+    schedule = [entry({ weekday: 3, time: '08:30', venue: 'LG7' })]
+
+    await reminderService.runFor({ ...student, classReminderMinutes: 30 }, WED_0800)
+    expect(sent).toHaveLength(1)
   })
 
   it('stays silent when nothing is close', async () => {

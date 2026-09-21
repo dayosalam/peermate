@@ -37,6 +37,17 @@ export class StudentContextService {
       `They can retrieve information from ${groups.length} verified group${groups.length === 1 ? '' : 's'}; course labels are optional. Automatic reminders are ${user.automaticReminders === false ? 'off' : 'on'}.`,
     ]
 
+    if (groups.length > 0) {
+      lines.push(
+        `Peermate shares these verified groups with them: ${groups
+          .map(
+            (group) =>
+              `${group.name ?? 'Unnamed group'} (${group.purpose ?? 'purpose not provided yet'})`,
+          )
+          .join('; ')}.`,
+      )
+    }
+
     const taking = user.courseKeys.map((key) => {
       const course = known.get(key)
       const extra = [course?.title, course?.lecturer].filter(Boolean).join(', ')

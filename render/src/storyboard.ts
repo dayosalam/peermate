@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ScriptActionSchema } from './scripted.js'
 
 const Coordinate = z.number().min(0).max(1)
 const Timed = { at: z.number().min(0).max(1), duration: z.number().min(0.02).max(1).default(0.12) }
@@ -95,7 +96,12 @@ export const VisualSchema = z.discriminatedUnion('kind', [
     kind: z.literal('whiteboard'),
     /** Continue the immediately preceding board only when the diagram truly continues. */
     carry: z.boolean().default(false),
-    actions: z.array(WhiteboardActionSchema).min(4).max(24),
+    actions: z.array(WhiteboardActionSchema).min(1).max(24),
+  }),
+  z.object({
+    kind: z.literal('scripted'),
+    /** Approved high-level primitives rendered by the isolated Python engine. */
+    actions: z.array(ScriptActionSchema).min(2).max(30),
   }),
   /**
    * An image made for this beat rather than taken from the material. Only where it

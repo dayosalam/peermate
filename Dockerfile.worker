@@ -13,8 +13,10 @@ ENV NODE_ENV=production
 # The render toolchain the bot image deliberately does without. This process holds no
 # socket, so it can carry what it needs to rasterise a PDF and encode a video.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ffmpeg fontconfig fonts-dejavu-core \
+ && apt-get install -y --no-install-recommends ffmpeg fontconfig fonts-dejavu-core python3 python3-pil \
  && rm -rf /var/lib/apt/lists/*
+
+ENV PEERMATE_PYTHON=/usr/bin/python3
 
 COPY package*.json ./
 RUN npm ci --omit=dev

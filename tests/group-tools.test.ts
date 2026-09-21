@@ -4,6 +4,7 @@ import type { Group, User } from '../src/models/index.js'
 let mine: Group[] = []
 let allowed = true
 const changed: Array<{ chatJid: string; course: string | null }> = []
+const purposes: Array<{ chatJid: string; purpose: string }> = []
 const trusted: Array<{ chatJid: string; name: string; role: string }> = []
 const ignored: string[] = []
 const preferences: Array<{ phone: string; chatJid: string; mode: string }> = []
@@ -65,6 +66,9 @@ vi.mock('../src/services/group.service.js', () => ({
     setCourse: vi.fn(async (chatJid: string, course: string | null) => {
       changed.push({ chatJid, course })
     }),
+    setPurpose: vi.fn(async (chatJid: string, purpose: string) => {
+      purposes.push({ chatJid, purpose })
+    }),
     trust: vi.fn(async (chatJid: string, name: string, role: string) => {
       trusted.push({ chatJid, name, role })
     }),
@@ -99,6 +103,7 @@ beforeEach(() => {
   mine = [group()]
   allowed = true
   changed.length = 0
+  purposes.length = 0
   trusted.length = 0
   ignored.length = 0
   preferences.length = 0
@@ -111,6 +116,31 @@ beforeEach(() => {
  * whole of it — and the check is made inside each one, not by whoever called it.
  */
 describe('changing a group', () => {
+  it('lists only verified shared groups with their exact names', async () => {
+    mine = [
+      group({ name: 'Engineeering 400Leve', defaultCourse: null, defaultCourseKey: null }),
+      group({ chatJid: 'g2@g.us', name: 'Project Team', purpose: 'final-year design project' }),
+    ]
+    const reply = await run('list_shared_groups', {})
+    expect(reply).toMatch(/Engineeering 400Leve/)
+    expect(reply).toMatch(/Project Team/)
+    expect(reply).toMatch(/final-year design project/)
+  })
+
+  it('stores a natural-language group purpose without parsing course codes', async () => {
+    const reply = await run('set_group_purpose', {
+      group: null,
+      purpose: 'all 400-level engineering courses and department notices',
+    })
+    expect(purposes).toEqual([
+      {
+        chatJid: 'g1@g.us',
+        purpose: 'all 400-level engineering courses and department notices',
+      },
+    ])
+    expect(reply).toMatch(/retains all new content/i)
+  })
+
   it('corrects the course of the one group they are in', async () => {
     await run('set_group_course', { group: null, course: 'CVE 581' })
     expect(changed).toEqual([{ chatJid: 'g1@g.us', course: 'CVE 581' }])

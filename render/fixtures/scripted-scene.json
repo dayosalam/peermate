@@ -1,0 +1,8 @@
+{
+  "source": "CVE575_ClassNotes_1.pdf, p.14",
+  "actions": [
+    { "type": "title", "text": "Highway engineering", "x": 0.04, "y": 0.04, "size": 58, "color": "#2563a6", "at": 0, "duration": 0.18 },
+    { "type": "bullets", "items": ["Alignment and geometry", "Pavement and materials", "Drainage structures", "Traffic management"], "x": 0.06, "y": 0.27, "size": 32, "spacing": 0.11, "at": 0.18, "duration": 0.46 },
+    { "type": "road", "x": 0.62, "y": 0.25, "width": 0.28, "height": 0.42, "color": "#172033", "at": 0.64, "duration": 0.36 }
+  ]
+}

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 /**
- * Joining activates a group after a one-time disclosure. Retrieval is separately
+ * Joining activates a group without posting in it. Retrieval is separately
  * membership-scoped, so active ingestion is not public access.
  *
  * `revoked` is the end of the relationship: Peermate was removed, or the group was
@@ -35,6 +35,8 @@ export const GroupSchema = z.object({
   name: z.string().nullable(),
   defaultCourse: z.string().nullable(),
   defaultCourseKey: z.string().nullable(),
+  /** User-described scope such as "all final-year engineering courses"; never guessed. */
+  purpose: z.string().nullable().optional(),
   status: GroupStatus.default('pending'),
   /**
    * The bot number that is in this group. Only that shard holds a socket which can

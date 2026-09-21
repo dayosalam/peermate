@@ -55,6 +55,12 @@ const envSchema = z.object({
 
   OPENAI_API_KEY: z.string().default(''),
 
+  // Optional observability. Off by default because traces contain student messages
+  // and retrieved course material; enabling it is an explicit data-sharing choice.
+  LANGSMITH_TRACING: booleanFromEnv.default('false'),
+  LANGSMITH_API_KEY: z.string().default(''),
+  LANGSMITH_PROJECT: z.string().default('peermate'),
+
   // Exa. Optional: with no key, prep is built from the shared files alone and the
   // further-reading section is simply absent.
   EXA_API_KEY: z.string().default(''),
@@ -154,6 +160,10 @@ export const config = {
     pairingNumber: env.WHATSAPP_PAIRING_NUMBER,
   },
   openai: { apiKey: env.OPENAI_API_KEY, ...defaults.llm },
+  langsmith: {
+    enabled: env.LANGSMITH_TRACING && env.LANGSMITH_API_KEY !== '',
+    project: env.LANGSMITH_PROJECT,
+  },
   research: { apiKey: env.EXA_API_KEY, enabled: env.EXA_API_KEY !== '', ...defaults.research },
   embeddings: defaults.embeddings,
   searchBackend: env.SEARCH_BACKEND,

@@ -91,6 +91,24 @@ describe('building a spoken explanation', () => {
     expect(searched).toHaveLength(0)
   })
 
+  it('uses only the note the student named', async () => {
+    chunks = [
+      chunk({ fileName: 'CVE575_ClassNotes_1.pdf', content: 'The requested first note.' }),
+      chunk({ fileName: 'CVE575_Coursework_4-6.pdf', content: 'UNRELATED COURSEWORK' }),
+    ]
+
+    await explainerService.explain(
+      student,
+      'CVE575',
+      'highway engineering',
+      'video',
+      'class note 1',
+    )
+
+    expect(sentPrompt).toContain('The requested first note.')
+    expect(sentPrompt).not.toContain('UNRELATED COURSEWORK')
+  })
+
   it('is scoped to the groups the student is in', async () => {
     await explainerService.explain(student, 'CVE575', 'shear force')
     expect(searched.at(-1)?.groupJids).toEqual(['g1@g.us'])
