@@ -166,3 +166,144 @@ faqItems.forEach((item) => {
     })
   })
 })
+
+const signupDialog = document.querySelector('[data-signup-dialog]')
+const signupClose = document.querySelector('[data-signup-close]')
+const signupForm = document.querySelector('[data-email-signup]')
+const signupStatus = document.querySelector('[data-signup-status]')
+const signupToast = document.querySelector('[data-signup-toast]')
+const signupCtas = [...document.querySelectorAll('[data-signup-cta]')]
+const signupStorageKey = 'peermate.signup.v1'
+let whatsappUrl = 'https://wa.me/15076046411'
+let signupComplete = false
+
+try {
+  signupComplete = window.localStorage.getItem(signupStorageKey) === 'complete'
+} catch {
+  // Signup still works when storage is unavailable; the CTA resets on the next visit.
+}
+
+const setSignupStatus = (message = '', isError = false) => {
+  if (!signupStatus) return
+  signupStatus.textContent = message
+  signupStatus.classList.toggle('is-error', isError)
+}
+
+const syncSignupCtas = () => {
+  signupCtas.forEach((cta) => {
+    const label = cta.querySelector('[data-cta-label]')
+    if (!signupComplete) {
+      cta.setAttribute('href', '#signup')
+      cta.removeAttribute('target')
+      cta.removeAttribute('rel')
+      cta.setAttribute('aria-label', 'Sign up for PeerMate')
+      return
+    }
+
+    cta.setAttribute('href', whatsappUrl)
+    cta.setAttribute('target', '_blank')
+    cta.setAttribute('rel', 'noopener noreferrer')
+    cta.setAttribute('aria-label', 'Chat with PeerMate on WhatsApp')
+    if (label) label.textContent = cta.dataset.signedInLabel || 'Chat on WhatsApp'
+  })
+}
+
+const openSignup = () => {
+  if (!signupDialog) return
+  setSignupStatus()
+  if (typeof signupDialog.showModal === 'function') signupDialog.showModal()
+  else signupDialog.setAttribute('open', '')
+  signupForm?.querySelector('input[name="email"]')?.focus()
+}
+
+const closeSignup = () => {
+  if (!signupDialog) return
+  if (typeof signupDialog.close === 'function') signupDialog.close()
+  else signupDialog.removeAttribute('open')
+}
+
+signupCtas.forEach((cta) => {
+  cta.addEventListener('click', (event) => {
+    if (signupComplete) return
+    event.preventDefault()
+    closeMenu()
+    openSignup()
+  })
+})
+
+signupClose?.addEventListener('click', closeSignup)
+signupDialog?.addEventListener('click', (event) => {
+  if (event.target === signupDialog) closeSignup()
+})
+
+const finishSignup = (nextWhatsappUrl) => {
+  whatsappUrl = nextWhatsappUrl || whatsappUrl
+  signupComplete = true
+  try {
+    window.localStorage.setItem(signupStorageKey, 'complete')
+  } catch {
+    // The current page still transitions even if the browser blocks storage.
+  }
+  syncSignupCtas()
+  closeSignup()
+  if (signupToast) {
+    signupToast.hidden = false
+    window.setTimeout(() => {
+      signupToast.hidden = true
+    }, 5000)
+  }
+}
+
+const postSignup = async (path, payload) => {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  const result = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(result.error || 'Signup could not be saved. Please try again.')
+  return result
+}
+
+signupForm?.addEventListener('submit', async (event) => {
+  event.preventDefault()
+  const submitButton = signupForm.querySelector('button[type="submit"]')
+  const submitLabel = signupForm.querySelector('[data-submit-label]')
+  const fields = new FormData(signupForm)
+  const email = String(fields.get('email') || '').trim()
+  const name = String(fields.get('name') || '').trim()
+
+  if (!email || !signupForm.reportValidity()) return
+
+  submitButton?.setAttribute('disabled', '')
+  if (submitLabel) submitLabel.textContent = 'Signing you up…'
+  setSignupStatus('Saving your signup…')
+
+  try {
+    const result = await postSignup('/api/signup/email', { email, name })
+    signupForm.reset()
+    finishSignup(result.whatsappUrl)
+  } catch (error) {
+    setSignupStatus(error instanceof Error ? error.message : 'Signup failed.', true)
+  } finally {
+    submitButton?.removeAttribute('disabled')
+    if (submitLabel) submitLabel.textContent = 'Sign up with email'
+  }
+})
+
+// Google signup is intentionally disabled for now.
+
+const loadSignupConfig = async () => {
+  try {
+    const response = await fetch('/api/signup/config', { headers: { Accept: 'application/json' } })
+    if (!response.ok) throw new Error('Signup configuration is unavailable.')
+    const config = await response.json()
+    whatsappUrl = config.whatsappUrl || whatsappUrl
+    syncSignupCtas()
+  } catch {
+    syncSignupCtas()
+  }
+}
+
+syncSignupCtas()
+void loadSignupConfig()

@@ -100,6 +100,9 @@ async function ensureIndexes(database: Db): Promise<void> {
   await database.collection('courses').createIndex({ courseKey: 1 }, { unique: true })
 
   await database.collection('conversations').createIndex({ phone: 1 }, { unique: true })
+
+  await database.collection('landing_signups').createIndex({ email: 1 }, { unique: true })
+  await database.collection('landing_signups').createIndex({ createdAt: -1 })
   await ensureConversationTtl(database)
 }
 

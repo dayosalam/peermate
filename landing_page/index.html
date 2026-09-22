@@ -53,19 +53,20 @@
           <a href="#faq">FAQ</a>
           <a
             class="nav-whatsapp-link"
-            href="https://wa.me/15076046411"
-            target="_blank"
-            rel="noopener noreferrer"
-          >Chat on WhatsApp</a>
+            href="#signup"
+            data-signup-cta
+            data-signed-in-label="Chat on WhatsApp"
+            aria-label="Sign up for PeerMate"
+          ><span data-cta-label>Sign up</span></a>
         </nav>
 
         <a
           class="button button--small nav-cta"
-          href="https://wa.me/15076046411"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Chat with PeerMate on WhatsApp at +1 507 604 6411"
-        >Chat on WhatsApp</a>
+          href="#signup"
+          data-signup-cta
+          data-signed-in-label="Chat on WhatsApp"
+          aria-label="Sign up for PeerMate"
+        ><span data-cta-label>Sign up</span></a>
       </div>
     </header>
 
@@ -90,12 +91,12 @@
             <div class="hero-actions">
               <a
                 class="button"
-                href="https://wa.me/15076046411"
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Chat with PeerMate on WhatsApp at +1 507 604 6411"
+                href="#signup"
+                data-signup-cta
+                data-signed-in-label="Chat with PeerMate"
+                aria-label="Sign up for PeerMate"
               >
-                Chat with PeerMate
+                <span data-cta-label>Sign up for PeerMate</span>
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M5 12h14M13 6l6 6-6 6" />
                 </svg>
@@ -597,11 +598,11 @@
           <div class="final-cta__actions">
             <a
               class="button button--white"
-              href="https://wa.me/15076046411"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Chat with PeerMate on WhatsApp at +1 507 604 6411"
-            >Chat on WhatsApp</a>
+              href="#signup"
+              data-signup-cta
+              data-signed-in-label="Chat on WhatsApp"
+              aria-label="Sign up for PeerMate"
+            ><span data-cta-label>Sign up</span></a>
             <a class="text-link text-link--light" href="#how-it-works">See how it works <span aria-hidden="true">→</span></a>
           </div>
         </div>
@@ -622,8 +623,12 @@
           <div><strong>Trust</strong><a href="#safety">Privacy approach</a><a href="#faq">FAQ</a></div>
           <div>
             <strong>Contact</strong>
-            <a href="https://wa.me/15076046411" target="_blank" rel="noopener noreferrer">WhatsApp</a>
-            <a href="https://wa.me/15076046411" target="_blank" rel="noopener noreferrer">+1 507 604 6411</a>
+            <a
+              href="#signup"
+              data-signup-cta
+              data-signed-in-label="WhatsApp · +1 507 604 6411"
+              aria-label="Sign up for PeerMate"
+            ><span data-cta-label>Sign up to chat</span></a>
           </div>
         </div>
       </div>
@@ -632,6 +637,51 @@
         <!-- <p>Prototype · staged data only</p> -->
       </div>
     </footer>
+
+    <dialog class="signup-modal" id="signup" data-signup-dialog aria-labelledby="signup-title">
+      <div class="signup-card">
+        <button class="signup-close" type="button" data-signup-close aria-label="Close signup">×</button>
+        <p class="section-kicker">Join PeerMate</p>
+        <h2 id="signup-title">Sign up before you start chatting.</h2>
+        <p class="signup-intro">
+          Leave your email so we can keep track of early access. We will not add you
+          to unrelated mailing lists.
+        </p>
+
+        <form class="signup-form" data-email-signup novalidate>
+          <label>
+            <span>Name <small>(optional)</small></span>
+            <input type="text" name="name" autocomplete="name" maxlength="100" />
+          </label>
+          <label>
+            <span>Email address</span>
+            <input type="email" name="email" autocomplete="email" maxlength="254" required />
+          </label>
+          <button class="button signup-submit" type="submit">
+            <span data-submit-label>Sign up with email</span>
+          </button>
+        </form>
+
+        <!-- Google signup is disabled for now.
+        <div class="signup-divider"><span>or</span></div>
+        <div class="google-signup" data-google-signup hidden>
+          <div data-google-button></div>
+        </div>
+        <p class="signup-google-note" data-google-note hidden>
+          Google signup will appear once it is configured.
+        </p>
+        -->
+        <p class="signup-status" data-signup-status aria-live="polite"></p>
+        <p class="signup-privacy">
+          By signing up, you agree that PeerMate may store your name, email and signup
+          method for early-access administration.
+        </p>
+      </div>
+    </dialog>
+
+    <div class="signup-toast" data-signup-toast role="status" aria-live="polite" hidden>
+      You are signed up. You can now chat with PeerMate on WhatsApp.
+    </div>
 
     <script src="script.js"></script>
   </body>
