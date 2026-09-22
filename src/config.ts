@@ -93,16 +93,6 @@ const envSchema = z.object({
   // is noise — our own connection.update logging covers what actually matters.
   BAILEYS_LOG_LEVEL: z.enum(['silent', 'error', 'warn', 'info', 'debug']).default('silent'),
 
-  // Landing-page lead capture. Google signup is intentionally disabled for now.
-  LANDING_WHATSAPP_NUMBER: z.string().regex(/^\d+$/).default('15076046411'),
-  SMTP_HOST: z.string().default(''),
-  SMTP_PORT: z.coerce.number().int().min(1).max(65_535).default(587),
-  SMTP_USERNAME: z.string().default(''),
-  SMTP_PASSWORD: z.string().default(''),
-  SMTP_USE_TLS: booleanFromEnv.default('true'),
-  SMTP_USE_SSL: booleanFromEnv.default('false'),
-  MAIL_FROM: z.string().default(''),
-  ADMIN_WAITLIST_EMAIL: z.string().default(''),
 })
 
 const env = envSchema.parse(process.env)
@@ -123,11 +113,6 @@ const REQUIRED_IN_PRODUCTION = [
   'MINIO_SECRET_KEY',
   'OPENAI_API_KEY',
   'ADMIN_PHONE',
-  'SMTP_HOST',
-  'SMTP_USERNAME',
-  'SMTP_PASSWORD',
-  'MAIL_FROM',
-  'ADMIN_WAITLIST_EMAIL',
 ] as const
 
 if (env.ENVIRONMENT === 'production') {
@@ -201,24 +186,6 @@ export const config = {
     args: env.RENDER_ARGS.split(',').filter(Boolean),
   },
   baileysLogLevel: env.BAILEYS_LOG_LEVEL,
-  landing: {
-    whatsappNumber: env.LANDING_WHATSAPP_NUMBER,
-    whatsappUrl: `https://wa.me/${env.LANDING_WHATSAPP_NUMBER}`,
-  },
-  email: {
-    enabled:
-      env.SMTP_HOST !== '' &&
-      env.MAIL_FROM !== '' &&
-      env.ADMIN_WAITLIST_EMAIL !== '',
-    host: env.SMTP_HOST,
-    port: env.SMTP_PORT,
-    username: env.SMTP_USERNAME,
-    password: env.SMTP_PASSWORD,
-    secure: env.SMTP_USE_SSL,
-    requireTls: env.SMTP_USE_TLS,
-    from: env.MAIL_FROM,
-    adminWaitlistEmail: env.ADMIN_WAITLIST_EMAIL,
-  },
   cloudApi: {
     accessToken: env.ACCESS_TOKEN,
     appSecret: env.APP_SECRET,
