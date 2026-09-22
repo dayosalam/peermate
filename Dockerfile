@@ -13,8 +13,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 RUN chown -R node:node /app
-# Auth state is a mounted volume: baking it into an image would ship a live
-# WhatsApp session credential.
-VOLUME ["/app/auth_state"]
+# Railway mounts persistent storage at runtime. Attach a Railway Volume at
+# /app/auth_state; never bake the live WhatsApp session into this image.
 USER node
 CMD ["node", "dist/index.js"]
