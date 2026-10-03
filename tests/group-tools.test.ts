@@ -54,11 +54,24 @@ vi.mock('../src/repositories/index.js', () => ({
       fromGroup: true,
       chatJid: 'g1@g.us',
     })),
+    accessible: vi.fn(async () => []),
   },
 }))
 
 vi.mock('../src/services/membership.service.js', () => ({
-  membershipService: { mayAdminister: vi.fn(async () => allowed) },
+  membershipService: {
+    mayAdminister: vi.fn(async () => allowed),
+    liveSharedGroups: vi.fn(async () => mine),
+    members: vi.fn(async () => [
+      {
+        stableId: '111@lid',
+        jid: '111@lid',
+        lid: '111@lid',
+        phoneNumber: '2348012345678',
+        admin: null,
+      },
+    ]),
+  },
 }))
 
 vi.mock('../src/services/group.service.js', () => ({
@@ -190,6 +203,14 @@ describe('recording who to trust', () => {
     allowed = false
     await run('trust_sender', { group: null, name: 'Dr Bello', role: 'lecturer' })
     expect(trusted).toEqual([])
+  })
+})
+
+describe('reading the live participant directory', () => {
+  it('returns visible numbers only for a verified current group', async () => {
+    const reply = await run('list_group_members', { group: null, member: null })
+    expect(reply).toContain('+2348012345678')
+    expect(reply).toContain('current_membership="verified"')
   })
 })
 

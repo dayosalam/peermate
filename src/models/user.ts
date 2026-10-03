@@ -2,6 +2,9 @@ import { z } from 'zod'
 
 export const OnboardingState = z.enum([
   'awaiting_name',
+  'awaiting_timetable',
+  'awaiting_timetable_confirmation',
+  'awaiting_reminder',
   'awaiting_courses',
   'awaiting_digest',
   'registered',
@@ -47,6 +50,8 @@ export const UserSchema = z.object({
   historicalGroupJids: z.array(z.string()).optional(),
   /** Per-group proactive behaviour; retrieval remains available until explicitly forgotten. */
   groupPreferences: z.array(GroupPreferenceSchema).optional(),
+  /** Shared-group connection notices already delivered privately to this student. */
+  notifiedGroupJids: z.array(z.string()).optional(),
   /**
    * The bot number this student talks to.
    *

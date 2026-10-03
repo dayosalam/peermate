@@ -1,20 +1,20 @@
 {
   "name": "peermate",
-  "version": "0.1.0",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "ENVIRONMENT=development DOTENV_CONFIG_PATH=.env.local tsx watch src/index.ts",
     "start": "node dist/index.js",
     "build": "tsc -p tsconfig.json",
     "render": "npm --prefix render run render --",
     "video:test": "npm --prefix render run explain --",
     "typecheck": "tsc -p tsconfig.test.json",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "ENVIRONMENT=test vitest run",
+    "test:watch": "ENVIRONMENT=test vitest",
     "format": "prettier --write \"{src,tests}/**/*.ts\"",
     "infra:up": "docker compose up -d",
     "infra:down": "docker compose down",
@@ -28,7 +28,7 @@
     "signups": "tsx src/scripts/list-signups.ts",
     "signups:prod": "node dist/scripts/list-signups.js",
     "hear": "tsx src/scripts/hear.ts",
-    "dev:local": "DOTENV_CONFIG_PATH=.env.local tsx watch src/index.ts",
+    "dev:local": "ENVIRONMENT=development DOTENV_CONFIG_PATH=.env.local tsx watch src/index.ts",
     "test:local": "DOTENV_CONFIG_PATH=.env.local tsx src/scripts/smoke.ts",
     "eval:local": "DOTENV_CONFIG_PATH=.env.local tsx src/scripts/eval.ts",
     "reset:local": "DOTENV_CONFIG_PATH=.env.local tsx src/scripts/reset.ts",

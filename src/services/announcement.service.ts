@@ -100,13 +100,28 @@ export class AnnouncementService {
         extraction.scope === 'department'
           ? null
           : await extractionRepository.findChanged(extraction)
-      if (changed && !outranks(changed.authority, extraction.authority)) {
-        await extractionRepository.supersede(changed.eventId, extraction.eventId)
-        logger.info(
-          { courseKey: extraction.courseKey, replaced: changed.eventId },
-          'announcement superseded by a correction',
+      if (changed) {
+        if (outranks(extraction.authority, changed.authority)) {
+          await extractionRepository.supersede(changed.eventId, extraction.eventId)
+          logger.info(
+            { courseKey: extraction.courseKey, replaced: changed.eventId },
+            'announcement superseded by a higher-authority correction',
+          )
+          await this.send(extraction, source, this.formatChange(extraction, changed, source))
+          continue
+        }
+
+        const previousSource = await messageRepository.findById(changed.sourceMessageId)
+        if (outranks(changed.authority, extraction.authority)) {
+          // Keep the trusted version current. The lower-authority claim remains in
+          // the audit trail but cannot reach reminders or later "current" answers.
+          await extractionRepository.supersede(extraction.eventId, changed.eventId)
+        }
+        await this.send(
+          extraction,
+          source,
+          this.formatConflict(extraction, changed, source, previousSource),
         )
-        await this.send(extraction, source, this.formatChange(extraction, changed, source))
         continue
       }
 
@@ -236,7 +251,12 @@ _${source.senderName ?? 'unknown'}${role ? ` (${role})` : ''}, ${stamp}_`
     const role = describeAuthority(extraction.authority)
     const stamp = formatStamp(source.timestamp, config.digest.timezone)
 
-    const when = [extraction.originalDateText ?? extraction.date, formatTime12(extraction.time)]
+    const writtenWhen = extraction.originalDateText ?? extraction.date
+    const formattedTime = formatTime12(extraction.time)
+    const when = [
+      writtenWhen,
+      formattedTime && !containsTime(writtenWhen, formattedTime) ? formattedTime : null,
+    ]
       .filter(Boolean)
       .join(' ')
     const where = extraction.venue ? `, ${extraction.venue}` : ''
@@ -245,6 +265,40 @@ _${source.senderName ?? 'unknown'}${role ? ` (${role})` : ''}, ${stamp}_`
 
 ${source.senderName ?? 'Someone'}${role ? ` (${role})` : ''} has now said the same thing.
 _${source.senderName ?? 'unknown'}, ${stamp}_`
+  }
+
+  private formatConflict(
+    incoming: Extraction,
+    existing: Extraction,
+    incomingSource: Message,
+    existingSource: Message | null,
+  ): string {
+    const course = courseDisplay(incoming.course ?? incoming.courseKey) ?? 'Your course'
+    const event = incoming.eventType.replace('_', ' ')
+    const oldValue = [
+      existing.originalDateText ?? existing.date,
+      formatTime12(existing.time),
+      existing.venue,
+    ]
+      .filter(Boolean)
+      .join(', ')
+    const newValue = [
+      incoming.originalDateText ?? incoming.date,
+      formatTime12(incoming.time),
+      incoming.venue,
+    ]
+      .filter(Boolean)
+      .join(', ')
+    const existingRole = describeAuthority(existing.authority) ?? 'student'
+    const incomingRole = describeAuthority(incoming.authority) ?? 'student'
+    const trusted = outranks(existing.authority, incoming.authority)
+
+    return `⚠️ *Conflicting ${course} ${event} information*
+
+• ${oldValue || 'Details not stated'} — ${existingSource?.senderName ?? 'unknown'} (${existingRole}), ${existingSource ? formatStamp(existingSource.timestamp, config.digest.timezone) : 'earlier'}
+• ${newValue || 'Details not stated'} — ${incomingSource.senderName ?? 'unknown'} (${incomingRole}), ${formatStamp(incomingSource.timestamp, config.digest.timezone)}
+
+${trusted ? `I'm keeping the ${existingRole}'s version as current because that source has higher authority.` : 'Both sources have equal authority, so I cannot safely choose one. Please confirm before relying on either.'}`
   }
 
   /**
@@ -259,9 +313,7 @@ _${source.senderName ?? 'unknown'}, ${stamp}_`
     const role = describeAuthority(extraction.authority)
     const stamp = formatStamp(source.timestamp, config.digest.timezone)
 
-    const when = [extraction.originalDateText ?? extraction.date, formatTime12(extraction.time)]
-      .filter(Boolean)
-      .join(' ')
+    const when = formatWhen(extraction)
     const where = extraction.venue ? `, ${extraction.venue}` : ''
 
     return `🏛️ *Department notice — ${event}*${when ? ` — ${when}` : ''}${where}
@@ -421,9 +473,7 @@ Which course is this? Reply:
     if (extraction.scope === 'department') return this.formatDepartment(extraction, source)
 
     const course = courseDisplay(extraction.course ?? extraction.courseKey) ?? 'Your course'
-    const when = [extraction.originalDateText ?? extraction.date, formatTime12(extraction.time)]
-      .filter(Boolean)
-      .join(' ')
+    const when = formatWhen(extraction)
     const where = extraction.venue ? `, ${extraction.venue}` : ''
 
     const event = extraction.eventType.replace('_', ' ')
@@ -435,7 +485,8 @@ Which course is this? Reply:
 
     // Uncertainty has to come first. A confident headline with a hedge bolted on the
     // end still reads as fact — the student has acted on it before reaching the caveat.
-    if (extraction.confidence < 0.6) {
+    const effectiveConfidence = Math.min(extraction.confidence, source.transcriptConfidence ?? 1)
+    if (effectiveConfidence < 0.75) {
       const heard = [when, extraction.venue].filter(Boolean).join(', ')
       return `⚠️ *Possible ${course} ${event}*\n\nI heard ${heard ? `"${heard}"` : 'something about this'}, but I'm not fully certain — worth checking.\n${citation}`
     }
@@ -445,3 +496,15 @@ Which course is this? Reply:
 }
 
 export const announcementService = new AnnouncementService()
+
+function containsTime(written: string | null | undefined, formatted: string): boolean {
+  if (!written) return false
+  const compact = (value: string): string => value.toLowerCase().replace(/[\s.:]/g, '')
+  return compact(written).includes(compact(formatted))
+}
+
+function formatWhen(extraction: Extraction): string {
+  const written = extraction.originalDateText ?? extraction.date
+  const time = formatTime12(extraction.time)
+  return [written, time && !containsTime(written, time) ? time : null].filter(Boolean).join(' ')
+}

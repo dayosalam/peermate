@@ -1,10 +1,11 @@
 import type { WAMessageKey } from '@whiskeysockets/baileys'
 import { GroupSendForbidden } from '../core/errors.js'
-import { logger } from '../core/logger.js'
+import { devPreview, logger } from '../core/logger.js'
 import { getMedia } from '../db/minio.js'
 import { isBroadcastJid, isGroupJid, isUserJid } from '../whatsapp/jid.js'
 import { getSocket, whenOpen } from '../whatsapp/socket.js'
 import { VOICE_MIME } from './tts.service.js'
+import { config } from '../config.js'
 
 const RETRY_DELAY_MS = 2000
 
@@ -23,6 +24,12 @@ const TYPING_REFRESH_MS = 6000
  * makes the split-the-directions move in PRD §8 a one-class change.
  */
 export class NotifierService {
+  private decorate(text: string | undefined): string | undefined {
+    if (config.env !== 'development') return text
+    if (!text) return '*DEV TESTING*'
+    if (text.startsWith('*DEV TESTING*')) return text
+    return `*DEV TESTING*\n\n${text}`
+  }
   /**
    * "I am working on it", for the seconds transcription or retrieval takes.
    * Best-effort: never let a presence update break the reply it precedes.
@@ -64,8 +71,14 @@ export class NotifierService {
   /** Returns the id WhatsApp gave the message, which is what a reply quotes. */
   async sendText(jid: string, text: string): Promise<string | null> {
     this.assertNotGroup(jid)
-    const sent = await this.withRetry(() => getSocket().sendMessage(jid, { text }), jid)
-    logger.info({ jid }, 'dm sent')
+    if (!config.isProduction) {
+      logger.info({ direction: 'outbound', jid, text: devPreview(text) }, 'DEV sending reply')
+    }
+    const sent = await this.withRetry(
+      () => getSocket().sendMessage(jid, { text: this.decorate(text)! }),
+      jid,
+    )
+    logger.info({ jid, messageId: sent?.key?.id ?? null }, 'dm sent')
     return sent?.key?.id ?? null
   }
 
@@ -83,7 +96,13 @@ export class NotifierService {
     this.assertNotGroup(jid)
     const document = await getMedia(mediaKey)
     await this.withRetry(
-      () => getSocket().sendMessage(jid, { document, fileName, mimetype: mimeType, caption }),
+      () =>
+        getSocket().sendMessage(jid, {
+          document,
+          fileName,
+          mimetype: mimeType,
+          caption: this.decorate(caption),
+        }),
       jid,
     )
     logger.info({ jid, fileName }, 'file sent')
@@ -132,7 +151,12 @@ export class NotifierService {
   async sendVideo(jid: string, video: Buffer, caption?: string): Promise<void> {
     this.assertNotGroup(jid)
     await this.withRetry(
-      () => getSocket().sendMessage(jid, { video, caption, mimetype: 'video/mp4' }),
+      () =>
+        getSocket().sendMessage(jid, {
+          video,
+          caption: this.decorate(caption),
+          mimetype: 'video/mp4',
+        }),
       jid,
     )
     logger.info({ jid, bytes: video.byteLength }, 'video sent')
@@ -141,7 +165,10 @@ export class NotifierService {
   /** `sendText` returns an id; an edit needs the whole key. Separate because almost nothing should be editable. */
   async sendEditable(jid: string, text: string): Promise<WAMessageKey | null> {
     this.assertNotGroup(jid)
-    const sent = await this.withRetry(() => getSocket().sendMessage(jid, { text }), jid)
+    const sent = await this.withRetry(
+      () => getSocket().sendMessage(jid, { text: this.decorate(text)! }),
+      jid,
+    )
     return sent?.key ?? null
   }
 
@@ -155,7 +182,7 @@ export class NotifierService {
   async edit(jid: string, key: WAMessageKey, text: string): Promise<boolean> {
     this.assertNotGroup(jid)
     try {
-      await getSocket().sendMessage(jid, { text, edit: key })
+      await getSocket().sendMessage(jid, { text: this.decorate(text)!, edit: key })
       return true
     } catch (error) {
       logger.warn({ err: error, jid }, 'could not edit — the window has probably closed')
@@ -166,7 +193,10 @@ export class NotifierService {
   /** Inline, not as a file to download — an image sent as a document is unreadable. */
   async sendImage(jid: string, image: Buffer, caption?: string): Promise<void> {
     this.assertNotGroup(jid)
-    await this.withRetry(() => getSocket().sendMessage(jid, { image, caption }), jid)
+    await this.withRetry(
+      () => getSocket().sendMessage(jid, { image, caption: this.decorate(caption) }),
+      jid,
+    )
     logger.info({ jid, bytes: image.length }, 'image sent')
   }
 
@@ -191,7 +221,12 @@ export class NotifierService {
     this.assertNotGroup(jid)
     await this.withRetry(
       () =>
-        getSocket().sendMessage(jid, { document: bytes, fileName, mimetype: mimeType, caption }),
+        getSocket().sendMessage(jid, {
+          document: bytes,
+          fileName,
+          mimetype: mimeType,
+          caption: this.decorate(caption),
+        }),
       jid,
     )
     logger.info({ jid, fileName, bytes: bytes.length }, 'document sent')

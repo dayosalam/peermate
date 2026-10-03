@@ -103,30 +103,21 @@ async function ensureIndexes(database: Db): Promise<void> {
 
   await database.collection('landing_signups').createIndex({ email: 1 }, { unique: true })
   await database.collection('landing_signups').createIndex({ createdAt: -1 })
-  await ensureConversationTtl(database)
+  await ensureConversationRetention(database)
 }
 
-/** A month. The referents inside expire in 45 minutes; the transcript is the reason. */
-const CONVERSATION_TTL_SECONDS = 60 * 60 * 24 * 30
-
 /**
- * The whole document goes when it expires, transcript included — so this bounds how
- * far back "you told me last week" can reach, not just how long a pronoun lives.
- *
- * Mongo refuses a createIndex that changes an existing index's options, and the six
- * hour version of this index is already out there deleting threads overnight. collMod
- * is the only way to widen one in place.
+ * Source and conversation history is retained until an explicit forget/delete action.
+ * Drop the legacy TTL in place so an unchanged data version also stops losing history.
  */
-async function ensureConversationTtl(database: Db): Promise<void> {
-  try {
-    await database
-      .collection('conversations')
-      .createIndex({ updatedAt: 1 }, { expireAfterSeconds: CONVERSATION_TTL_SECONDS })
-  } catch {
-    await database.command({
-      collMod: 'conversations',
-      index: { keyPattern: { updatedAt: 1 }, expireAfterSeconds: CONVERSATION_TTL_SECONDS },
-    })
-    logger.info({ seconds: CONVERSATION_TTL_SECONDS }, 'conversation ttl widened')
+async function ensureConversationRetention(database: Db): Promise<void> {
+  const collection = database.collection('conversations')
+  const indexes = await collection.indexes()
+  for (const index of indexes) {
+    if (index.expireAfterSeconds !== undefined) {
+      await collection.dropIndex(index.name!)
+      logger.info({ index: index.name }, 'removed automatic conversation expiry')
+    }
   }
+  await collection.createIndex({ updatedAt: 1 })
 }

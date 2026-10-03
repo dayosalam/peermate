@@ -126,7 +126,7 @@ beforeEach(() => {
  * that had moved two days earlier.
  */
 describe('an announcement that changes an earlier one', () => {
-  it('replaces the old venue rather than adding a second event', async () => {
+  it('reports a conflict instead of choosing between equal-authority sources', async () => {
     stored = [row({ eventId: 'old', venue: 'LG7', authority: 'rep' })]
 
     await announcementService.notify(
@@ -134,14 +134,19 @@ describe('an announcement that changes an earlier one', () => {
       source,
     )
 
-    expect(superseded).toEqual([{ eventId: 'old', by: 'new' }])
+    expect(superseded).toEqual([])
+    expect(sent[0]).toMatch(/conflicting/i)
+    expect(sent[0]).toMatch(/cannot safely choose/i)
   })
 
-  /** "LG8" alone reads as a fresh announcement; the old value is what makes it news. */
-  it('says what it was, not just what it is now', async () => {
-    stored = [row({ eventId: 'old', time: '10:00', venue: 'LG7' })]
+  /** A higher-authority correction says what changed rather than looking new. */
+  it('says what it was when a trusted source corrects it', async () => {
+    stored = [row({ eventId: 'old', time: '10:00', venue: 'LG7', authority: 'student' })]
 
-    await announcementService.notify([row({ eventId: 'new', time: '14:00', venue: 'LG8' })], source)
+    await announcementService.notify(
+      [row({ eventId: 'new', time: '14:00', venue: 'LG8', authority: 'rep' })],
+      source,
+    )
 
     expect(sent[0]).toMatch(/changed/i)
     expect(sent[0]).toMatch(/Now:.*2pm, LG8/)
@@ -159,8 +164,8 @@ describe('an announcement that changes an earlier one', () => {
   })
 
   /**
-   * A classmate does not get to overrule the lecturer. Both rows stand and the
-   * student sees a disagreement, which is the honest outcome.
+   * A classmate does not get to overrule the lecturer. The lower-authority row is
+   * retained for audit but points back to the lecturer's current version.
    */
   it('refuses to let a classmate overrule a lecturer', async () => {
     stored = [row({ eventId: 'old', venue: 'LG7', authority: 'lecturer' })]
@@ -169,8 +174,9 @@ describe('an announcement that changes an earlier one', () => {
       [row({ eventId: 'new', venue: 'LG8', authority: 'student' })],
       source,
     )
-    expect(superseded).toHaveLength(0)
-    expect(sent[0]).not.toMatch(/changed/i)
+    expect(superseded).toEqual([{ eventId: 'new', by: 'old' }])
+    expect(sent[0]).toMatch(/conflicting/i)
+    expect(sent[0]).toMatch(/higher authority/i)
   })
 
   it('leaves an unrelated event alone', async () => {
@@ -189,6 +195,27 @@ describe('an announcement that changes an earlier one', () => {
 
     await announcementService.notify([row({ eventId: 'new', venue: null, time: '10:00' })], source)
     expect(superseded).toHaveLength(0)
+  })
+})
+
+describe('announcement wording', () => {
+  it('does not repeat a time already present in the written date', async () => {
+    await announcementService.notify(
+      [row({ originalDateText: 'Wednesday 4pm', time: '16:00', venue: 'ELT' })],
+      source,
+    )
+    expect(sent[0]).toContain('Wednesday 4pm, ELT')
+    expect(sent[0]).not.toContain('4pm 4pm')
+  })
+
+  it('warns when an audio transcript itself has low confidence', async () => {
+    await announcementService.notify([row({ confidence: 0.95 })], {
+      ...source,
+      type: 'audio',
+      transcriptConfidence: 0.62,
+    })
+    expect(sent[0]).toMatch(/Possible CVE 575 test/i)
+    expect(sent[0]).toMatch(/not fully certain/i)
   })
 })
 

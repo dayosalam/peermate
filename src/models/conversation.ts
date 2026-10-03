@@ -101,7 +101,7 @@ export const ConversationSchema = z.object({
   /**
    * The running thread, oldest first.
    *
-   * Separate from the fields above and outliving them on purpose. Those are
+   * Retained in full, separate from the fields above and outliving them on purpose. Those are
    * referents — "it", "that one" — and a stale referent answers about the wrong
    * thing, so they expire. A transcript cannot be wrong in that way: it is only ever
    * a record of what was said, and "what did I ask you yesterday?" needs it intact.

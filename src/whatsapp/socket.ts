@@ -89,6 +89,24 @@ export function getSocket(): WASocket {
   return sock
 }
 
+/** Current WhatsApp state, not the database's remembered group list. */
+export async function participatingGroups(): Promise<
+  Array<{
+    chatJid: string
+    subject: string | null
+    participantCount: number
+    participants: unknown[]
+  }>
+> {
+  const groups = await getSocket().groupFetchAllParticipating()
+  return Object.values(groups).map((group) => ({
+    chatJid: group.id,
+    subject: group.subject ?? null,
+    participantCount: group.participants.length,
+    participants: group.participants,
+  }))
+}
+
 /**
  * Tears the old socket down before a new one replaces it.
  *
@@ -157,12 +175,19 @@ export async function connectWhatsApp(): Promise<WASocket> {
       const statusCode = (lastDisconnect?.error as { output?: { statusCode?: number } })?.output
         ?.statusCode
 
-      // A logged-out session cannot be revived by reconnecting — retrying loops forever.
-      // Stop and make the operator re-pair by hand. See PRD §11.
-      if (statusCode === DisconnectReason.loggedOut) {
+      // These session states cannot be repaired by redialling the same credentials.
+      // Stop rather than producing an endless reconnect loop; the auth directory is
+      // kept intact so the operator can move it aside and re-pair recoverably.
+      const terminalSession = [
+        DisconnectReason.loggedOut,
+        DisconnectReason.forbidden,
+        DisconnectReason.badSession,
+        DisconnectReason.multideviceMismatch,
+      ].includes(statusCode as DisconnectReason)
+      if (terminalSession) {
         logger.error(
-          { authDir: config.whatsapp.authDir },
-          'logged out — delete the auth dir and re-pair; not reconnecting',
+          { authDir: config.whatsapp.authDir, statusCode },
+          'WhatsApp session is no longer accepted — move the auth dir aside and re-pair; not reconnecting',
         )
         return
       }

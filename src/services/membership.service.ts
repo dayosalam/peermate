@@ -1,7 +1,7 @@
 import { logger } from '../core/logger.js'
 import type { Group, User } from '../models/index.js'
 import { groupRepository, userRepository } from '../repositories/index.js'
-import { getSocket } from '../whatsapp/socket.js'
+import { getSocket, participatingGroups } from '../whatsapp/socket.js'
 import { jidToPhone, LID_SUFFIX } from '../whatsapp/jid.js'
 import type { GroupParticipant } from '@whiskeysockets/baileys'
 
@@ -12,6 +12,15 @@ export interface Membership {
   uncovered: string[]
   /** Groups that carry one of their courses but could not be verified right now. */
   unverified: string[]
+}
+
+export interface LiveGroupMember {
+  stableId: string
+  jid: string
+  lid: string | null
+  phoneNumber: string | null
+  admin: string | null
+  name?: string | null
 }
 
 /**
@@ -35,6 +44,72 @@ export interface Membership {
  * hiccup must not be the thing that decides who reads a cohort's announcements.
  */
 export class MembershipService {
+  /** The live WhatsApp groups this account and this registered student share now. */
+  async liveSharedGroups(user: User): Promise<Group[]> {
+    const live = await participatingGroups()
+    const stored = new Map((await groupRepository.all()).map((group) => [group.chatJid, group]))
+    const shared: Group[] = []
+
+    for (const metadata of live) {
+      const participants = metadata.participants as GroupParticipant[]
+      const member = participants.some((participant) =>
+        [participant.id, participant.lid, participant.phoneNumber].some((jid) =>
+          this.isSamePerson(user, jid),
+        ),
+      )
+      if (!member) continue
+
+      await userRepository.addGroup(user.phone, metadata.chatJid)
+      const known = stored.get(metadata.chatJid)
+      if (known) {
+        shared.push({
+          ...known,
+          name: metadata.subject ?? known.name,
+          participantCount: metadata.participantCount,
+        })
+      }
+    }
+    return shared
+  }
+
+  async isCurrentMember(user: User, group: Group): Promise<boolean> {
+    return (await this.belongs(user, group)) === true
+  }
+
+  /** The live directory WhatsApp exposes to a verified current group member. */
+  async members(user: User, group: Group): Promise<LiveGroupMember[] | null> {
+    if (!(await this.isCurrentMember(user, group))) return null
+    const metadata = await getSocket().groupMetadata(group.chatJid)
+    const seen = new Set<string>()
+    const knownNames = new Map(
+      (group.participants ?? []).flatMap((member) =>
+        member.name ? [[member.stableId, member.name] as const] : [],
+      ),
+    )
+    const members = (metadata.participants as GroupParticipant[]).flatMap((participant) => {
+      const lid = participant.lid ?? (participant.id.endsWith(LID_SUFFIX) ? participant.id : null)
+      const phoneNumber = jidToPhone(participant.phoneNumber ?? participant.id)
+      const stableId = lid ?? phoneNumber ?? participant.id
+      if (seen.has(stableId)) return []
+      seen.add(stableId)
+      return [
+        {
+          stableId,
+          jid: participant.id,
+          lid,
+          phoneNumber,
+          admin: participant.admin ?? null,
+          name: knownNames.get(stableId) ?? null,
+        },
+      ]
+    })
+    await groupRepository.upsert({
+      ...group,
+      participantCount: members.length,
+      participants: members.map((member) => ({ ...member, observedAt: new Date() })),
+    })
+    return members
+  }
   async resolve(user: User): Promise<Membership> {
     // Only groups this student's own number is in.
     //
@@ -52,14 +127,18 @@ export class MembershipService {
     const covered = new Set<string>()
 
     for (const group of groups) {
-      const carries = group.defaultCourseKey
+      const carries = group.courseKeys?.length
+        ? group.courseKeys
+        : group.defaultCourseKey
+          ? [group.defaultCourseKey]
+          : []
       // A current member can retrieve their room whether or not they registered a
       // matching course. Course is organization metadata, not an access credential.
 
       const belongs = await this.belongs(user, group)
       if (belongs === true) {
         joined.add(group.chatJid)
-        if (carries) covered.add(carries)
+        for (const key of carries) covered.add(key)
       } else if (belongs === null) {
         unverified.add(group.chatJid)
       }

@@ -113,7 +113,7 @@ export class ScheduleService {
       ? `\n\n_I left out ${foreign} row${foreign === 1 ? '' : 's'} for courses you're not registered for._`
       : ''
 
-    return `${heading}\n\n${lines.join('\n')}${skipped}\n\nIs that right? Send *yes* and I'll remind you about these. If anything's wrong, send a clearer picture.`
+    return `${heading}\n\n${lines.join('\n')}${skipped}\n\nIs that right? Send *yes* and I'll remind you about these. If anything's wrong, send *no* and share a corrected version in any format.`
   }
 
   /**

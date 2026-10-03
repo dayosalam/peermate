@@ -282,6 +282,24 @@ describe('messages that are not questions', () => {
     await dmService.handle(dm('approve CVE 575'))
     expect(agentCalls.at(-1)).toBe('approve CVE 575')
   })
+
+  it('does not run ordinary registered-user text through timetable parsing', async () => {
+    const { timetableService } = await import('../src/services/timetable.service.js')
+    vi.mocked(timetableService.read).mockClear()
+    timetableRead = {
+      kind: 'other',
+      unreadable: false,
+      entries: [],
+      courseKeys: [],
+      courses: [],
+      mismatches: [],
+      undated: [],
+    }
+
+    await dmService.handle(dm('How many groups are you in?'))
+    expect(agentCalls.at(-1)).toBe('How many groups are you in?')
+    expect(timetableService.read).not.toHaveBeenCalled()
+  })
 })
 
 /**
@@ -353,7 +371,7 @@ describe('reading a photographed timetable', () => {
    * exactly then, and "when is my next class?" answered that it had never seen one.
    */
   it('keeps the schedule from a timetable sent during registration', async () => {
-    user = { ...user, onboardingState: 'awaiting_courses', courseKeys: [] }
+    user = { ...user, onboardingState: 'awaiting_timetable', courseKeys: [] }
     timetableRead = {
       kind: 'class_timetable',
       unreadable: false,
@@ -365,9 +383,46 @@ describe('reading a photographed timetable', () => {
     }
 
     await dmService.handle({ ...photo(), transcript: 'Monday CSC 301 8am' })
-    expect(outbox[0]).toMatch(/courses and groups are optional/i)
     expect(outbox.at(-1)).toMatch(/Is that right\?/)
+    expect(user.onboardingState).toBe('awaiting_timetable_confirmation')
     expect(conversation?.pendingAction).toBe('confirm_timetable')
+  })
+
+  it('accepts a timetable typed as text during registration', async () => {
+    user = { ...user, onboardingState: 'awaiting_timetable', courseKeys: [] }
+    timetableRead = {
+      kind: 'class_timetable',
+      unreadable: false,
+      entries: [row('CSC301', 1, '08:00')],
+      courseKeys: ['CSC301'],
+      courses: [],
+      mismatches: [],
+      undated: [],
+    }
+
+    await dmService.handle(dm('CSC 301 — Monday 8am'))
+    expect(outbox.at(-1)).toMatch(/Is that right\?/)
+    expect(user.onboardingState).toBe('awaiting_timetable_confirmation')
+  })
+
+  it('saves a confirmed onboarding timetable and advances to reminder setup', async () => {
+    user = { ...user, onboardingState: 'awaiting_timetable', courseKeys: [] }
+    timetableRead = {
+      kind: 'class_timetable',
+      unreadable: false,
+      entries: [row('CSC301', 1, '08:00')],
+      courseKeys: ['CSC301'],
+      courses: [],
+      mismatches: [],
+      undated: [],
+    }
+
+    await dmService.handle(photo())
+    await dmService.handle(dm('yes'))
+
+    expect(user.onboardingState).toBe('awaiting_reminder')
+    expect(outbox.at(-1)).toMatch(/Saved 1 timetable item/)
+    expect(outbox.at(-1)).toMatch(/When should I remind you/i)
   })
 
   it('still reads a genuine course list as one', async () => {

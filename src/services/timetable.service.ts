@@ -63,7 +63,7 @@ export interface ReadTimetable {
   courses: Array<{ courseKey: string; code: string; title: string | null; lecturer: string | null }>
 }
 
-const SYSTEM = `You read a photograph a Nigerian university student sent of their own timetable or course list. The text below was produced by OCR, so it may be imperfect.
+const SYSTEM = `You read content a Nigerian university student sent as their own timetable or course list. It may come from a photograph, PDF, document, pasted text or a manually typed schedule. Extracted text may be imperfect.
 
 Decide what the picture IS, first:
 - "course_list" — just course codes, with no days or times. A registration printout, a handwritten list.
@@ -99,15 +99,15 @@ Never invent a row. An empty timetable is a correct answer. Do not carry a value
  * student, which is why the result is read back to them before anything is stored.
  */
 export class TimetableService {
-  /** Worth attempting only when there is OCR text to work with. */
+  /** Worth attempting whenever one of the accepted inputs contains readable text. */
   looksLikeTimetable(message: Message): boolean {
-    if (message.type !== 'image') return false
-    return Boolean(message.transcript?.trim())
+    if (!['text', 'image', 'document'].includes(message.type)) return false
+    return Boolean(this.sourceText(message))
   }
 
   async read(message: Message): Promise<ReadTimetable | null> {
-    const ocr = message.transcript?.trim()
-    if (!ocr) return null
+    const source = this.sourceText(message)
+    if (!source) return null
 
     const caption = message.caption?.trim()
     const window = calendarWindow(message.timestamp, config.digest.timezone, 200)
@@ -122,7 +122,10 @@ export class TimetableService {
           },
           {
             role: 'user',
-            content: [caption ? `They said: "${caption}"` : null, `The picture reads:\n${ocr}`]
+            content: [
+              caption ? `They said: "${caption}"` : null,
+              `The timetable content reads:\n${source}`,
+            ]
               .filter(Boolean)
               .join('\n\n'),
           },
@@ -143,6 +146,10 @@ export class TimetableService {
       logger.error({ err: error }, 'could not read timetable')
       return null
     }
+  }
+
+  private sourceText(message: Message): string {
+    return [message.text, message.transcript].filter(Boolean).join('\n\n').trim()
   }
 
   private toEntries(

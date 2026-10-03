@@ -40,14 +40,14 @@ describe('remembering the thread', () => {
     expect(doc?.turns[0]!.text).toBe('when is the CVE 575 test?')
   })
 
-  it('keeps at least twenty exchanges, dropping the oldest first', async () => {
+  it('retains every exchange without dropping the oldest', async () => {
     for (let index = 0; index < 30; index += 1) {
       await conversationService.rememberTurn(PHONE, 'student', `question ${index}`)
       await conversationService.rememberTurn(PHONE, 'peermate', `answer ${index}`)
     }
 
-    expect(doc!.turns.length).toBe(40)
-    expect(doc!.turns[0]!.text).toBe('question 10')
+    expect(doc!.turns.length).toBe(60)
+    expect(doc!.turns[0]!.text).toBe('question 0')
     expect(doc!.turns.at(-1)!.text).toBe('answer 29')
   })
 
@@ -101,10 +101,10 @@ describe('the thread as a prompt block', () => {
     expect(lines[1]).toMatch(/four/)
   })
 
-  /** A digest runs to hundreds of words; forty of them would crowd out the question. */
-  it('clips a long turn instead of carrying the whole thing', async () => {
+  /** Storage stays complete; only the bounded prompt view is clipped. */
+  it('stores a long turn in full but clips the prompt view', async () => {
     await conversationService.rememberTurn(PHONE, 'peermate', 'x'.repeat(900))
-    expect(doc!.turns[0]!.text.length).toBeLessThan(600)
+    expect(doc!.turns[0]!.text.length).toBe(900)
 
     const line = (await conversationService.transcript(PHONE, 20, 50))!
     expect(line.length).toBeLessThan(120)

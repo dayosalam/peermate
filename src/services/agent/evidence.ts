@@ -39,7 +39,15 @@ export function describe(candidate: Candidate): string {
   }
 
   const form = candidate.type === 'audio' ? 'voice note' : candidate.type
-  return `[${course} | ${candidate.senderName}, ${form}, ${when}]\n${candidate.content}`
+  const confidence = candidate.transcriptConfidence
+  const caveat =
+    candidate.type === 'audio' &&
+    confidence !== null &&
+    confidence !== undefined &&
+    confidence < 0.75
+      ? ` | LOW-CONFIDENCE TRANSCRIPT ${(confidence * 100).toFixed(0)}% — quote cautiously and do not silently repair ambiguous names or course codes`
+      : ''
+  return `[${course} | ${candidate.senderName}, ${form}, ${when}${caveat}]\n${candidate.content}`
 }
 
 /** Oldest first, because the supersession rule reads them in order. */

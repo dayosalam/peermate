@@ -190,6 +190,7 @@ export class IndexingService {
       embedding,
       senderName: message.senderName ?? 'unknown',
       type: message.type,
+      transcriptConfidence: message.transcriptConfidence ?? null,
       fileName: null,
       page: null,
       readVia: 'text',
@@ -205,6 +206,7 @@ export class IndexingService {
       courseKey: courseKey ?? NO_COURSE,
       senderName: message.senderName ?? 'unknown',
       type: message.type,
+      transcriptConfidence: message.transcriptConfidence ?? -1,
       sourceKind: 'message',
       ownerPhone: message.fromGroup ? '' : (message.senderPhone ?? ''),
       // Chroma metadata is scalar-only, and a range filter needs a number.

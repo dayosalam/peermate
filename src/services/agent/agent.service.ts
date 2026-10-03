@@ -2,7 +2,7 @@ import type { ChatCompletion, ChatCompletionMessageParam } from 'openai/resource
 import { zodFunction } from 'openai/helpers/zod'
 import { config } from '../../config.js'
 import { randomUUID } from 'node:crypto'
-import { logger } from '../../core/logger.js'
+import { devPreview, logger } from '../../core/logger.js'
 import { count, recordSpend, unanswered } from '../../core/metrics.js'
 import type { User } from '../../models/index.js'
 import { getOpenAI } from '../openai.client.js'
@@ -35,12 +35,15 @@ const SYSTEM = `You are Peermate, a personal memory and action assistant designe
 You sound like a classmate who takes good notes — warm, brief, a little playful. Not a helpdesk, and never formal.
 
 How to answer:
-- WhatsApp, not email. Two or three lines. *bold* for emphasis, • for bullets, no headings, no markdown links.
+- WhatsApp, not email. Prefer two or three lines. Use only WhatsApp *bold* (single asterisks), • for bullets, no Markdown **double-asterisk** formatting, headings or Markdown links.
+- For a multi-course overview, give one compact factual line per course and one follow-up offer at the end. Do not repeat "ask me" or a different invitation after every course.
 - Read short replies against the immediately preceding conversation. "Alright", "okay", "yes", "that one", and similar replies are not standalone small talk: they acknowledge, answer, or select something from the previous message. Continue that exchange. If the previous reply offered an action and the student accepts, use the relevant tool; if nothing was offered, acknowledge briefly without asking the generic "what do you need?" again.
 - A genuine new greeting is not a question. Answer it in one warm line, use their name, and call no tool.
 - Every claim about the user's information comes from a tool. If the tools return nothing, say you could not find it — never pretend it was stored.
+- Report tool state honestly: "nothing found" is different from a lookup being skipped, capped, timed out or failed. Never describe an internal execution limit as missing student information.
 - If a request could refer to several groups, use list_shared_groups. Ask which one they mean, or clearly separate the answer by group; never silently choose one.
 - Cite what you say: who said it, in what form, and when. That provenance is in the evidence; it is not yours to invent.
+- Preserve evidence uncertainty. If a voice transcript is marked low confidence, say what it appears to say and identify ambiguous words; never silently repair a name or course code.
 - Later messages supersede earlier ones. A lecturer or class rep outweighs a classmate. When two sources of equal standing genuinely disagree, show both and refuse to choose.
 - Use the 12-hour clock. Their timezone is Africa/Lagos.
 - Never say "according to the archive" or otherwise describe your own machinery. Just answer.
@@ -58,9 +61,11 @@ Tools:
 - Anything about dates, deadlines or what is coming up: start with get_announcements. Also use search_archive when the wording may be informal, vague, newly posted, or missing from structured results.
 - Anything about what was said, what Peermate knows, a person, or what is inside a file: search_archive. Course labels are hints, never permission boundaries and never proof that a message is irrelevant.
 - You may call several different read tools when they answer different parts of the question. Do not call get_course_info once per course; use it only when the student asks for an account-style overview of one specific course.
+- For a broad account question covering all tracked courses, call get_all_course_info exactly once. A tool limit or skipped call is not evidence that a course has no information.
 - Exact recovery by sender, group, date or media type: list_memory. Use get_source when they select one, and send_original when they ask to receive it.
 - Their own week: get_timetable.
 - Questions about which groups Peermate shares with the user, their names, or what they are for: list_shared_groups. Never guess from a group name.
+- Questions asking who is in a group or for a visible group member's number: list_group_members. It independently verifies current membership; never assemble a cross-group directory.
 - When the user explains what a group is for, use set_group_purpose with their natural-language description. A group may cover many courses; do not force it into one course code.
 - Sending files costs them mobile data. Offer, and only send after they agree.
 - When they explicitly ask for a video, animation, whiteboard walkthrough, or to be shown a course topic, use render_explainer. Do not require a special command or exact wording. Use its scripted style by default so the lesson is progressively handwritten and drawn. Use structured only if they explicitly ask for the simpler diagram style.
@@ -93,6 +98,16 @@ export class AgentService {
     // One id per inbound message, on every line it produces. Without it a busy shard
     // interleaves four students' tool calls and none of them can be followed.
     const log = logger.child({ trace: randomUUID().slice(0, 8), phone: context.user.phone })
+    if (!config.isProduction) {
+      log.info(
+        {
+          question: devPreview(text),
+          profile: devPreview(context.profile, 1000),
+          history: devPreview(context.history, 2500),
+        },
+        'DEV agent started',
+      )
+    }
     count('agent.questions')
     // A slow tool may finish successfully after the normal deadline. It still gets
     // one model turn to turn "sent" into a human reply; otherwise the student sees
@@ -131,11 +146,33 @@ export class AgentService {
       messages.push(choice)
 
       const requested = choice.tool_calls ?? []
+      if (!config.isProduction) {
+        log.info(
+          {
+            step,
+            decision: requested.length ? 'use_tools' : 'answer',
+            tools: requested.map((call) => ({
+              name: call.function.name,
+              arguments: devPreview(call.function.arguments, 1200),
+            })),
+            draft: devPreview(choice.content),
+          },
+          'DEV model decision',
+        )
+      }
       if (requested.length === 0) {
         const reply = (choice.content ?? '').trim()
         if (!reply) throw new AgentFailed('the model returned an empty answer')
         count('agent.answered')
-        log.info({ steps: step, calls, ms: Date.now() - started }, 'agent answered')
+        log.info(
+          {
+            steps: step,
+            calls,
+            ms: Date.now() - started,
+            response: devPreview(reply),
+          },
+          'agent answered',
+        )
         return reply
       }
 
@@ -284,7 +321,15 @@ export class AgentService {
       const started = Date.now()
       const result = await tool.run(checked.data as Record<string, unknown>, context)
       count(`tool.${name}`)
-      log.debug({ tool: name, ms: Date.now() - started }, 'tool ran')
+      log.info(
+        {
+          tool: name,
+          arguments: config.isProduction ? undefined : checked.data,
+          result: devPreview(result, 3000),
+          ms: Date.now() - started,
+        },
+        'tool ran',
+      )
       return result
     } catch (error) {
       count(`tool.${name}.failed`)

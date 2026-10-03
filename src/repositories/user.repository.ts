@@ -25,6 +25,7 @@ function withDefaults(user: User | null): User | null {
     groupJids: user.groupJids ?? [],
     historicalGroupJids: user.historicalGroupJids ?? [],
     groupPreferences: user.groupPreferences ?? [],
+    notifiedGroupJids: user.notifiedGroupJids ?? [],
   }
 }
 
@@ -159,6 +160,25 @@ export class UserRepository extends BaseRepository<User> {
     await this.collection.updateOne({ phone } as never, {
       $addToSet: { groupJids: chatJid } as never,
       $pull: { historicalGroupJids: chatJid } as never,
+    })
+  }
+
+  /** Atomically claims one private group-added notice for one registered student. */
+  async claimGroupNotice(phone: string, chatJid: string): Promise<boolean> {
+    const result = await this.collection.updateOne(
+      {
+        phone,
+        onboardingState: 'registered',
+        notifiedGroupJids: { $ne: chatJid },
+      } as never,
+      { $addToSet: { notifiedGroupJids: chatJid } as never },
+    )
+    return result.modifiedCount === 1
+  }
+
+  async releaseGroupNotice(phone: string, chatJid: string): Promise<void> {
+    await this.collection.updateOne({ phone } as never, {
+      $pull: { notifiedGroupJids: chatJid } as never,
     })
   }
 

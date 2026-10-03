@@ -1,6 +1,6 @@
 # Peermate
 
-Peermate is a personal AI agent that lives in university course group chats and privately helps students keep up with what matters. It listens silently across multiple WhatsApp groups, understands text messages, voice notes, photographed timetables, PDFs and Word documents, and extracts important information such as tests, deadlines, venue changes and class schedules.
+Peermate is a personal AI agent that lives in university course group chats and privately helps students keep up with what matters. It listens silently across multiple WhatsApp groups, understands text messages, voice notes and photographed timetables, stores shared files, and extracts important information such as tests, deadlines, venue changes and class schedules. PDF contents are processed only when a student explicitly asks to use a file.
 
 Students receive timely alerts and personalized daily digests with citations showing who shared each announcement and when. They can ask follow-up questions, retrieve course files, manage their courses and notification preferences, upload personal timetables, receive reminders, and generate revision guides or quizzes from materials shared in their groups. Peermate also uses Exa to find clearly labelled external reading and additional study materials without mixing web content with official group-chat information.
 
@@ -27,11 +27,11 @@ docker compose logs -f app      # INFO: pairing code: ABCD-EFGH
 Then on the bot's phone: **WhatsApp → Linked devices → Link with phone number**, and
 type the code. It pairs once and stays paired.
 
-To develop against the host instead, run the stores in Docker and the app outside it,
-which puts the pairing code — or the QR — in your own terminal:
+To develop against the host instead, start MongoDB, MinIO and Chroma locally,
+then run the app outside them. This puts the pairing code — or the QR — in your
+own terminal:
 
 ```bash
-docker compose up mongo minio chroma
 npm run dev
 ```
 
@@ -80,8 +80,8 @@ was unavailable. Shared group sources are not deleted by one student's account d
 because other verified members may rely on them. A student can instead ask Peermate to
 forget one group, which removes only that student's access to its archive.
 
-Conversation transcripts expire after 30 days. Shared group-source retention is
-operator-controlled for now and must be explained privately to users before real deployment.
+Conversation transcripts and shared sources do not expire automatically. They remain
+until an authorised forget/delete request or deliberate data-version retirement.
 
 ### Product acceptance check
 

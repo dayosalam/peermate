@@ -97,6 +97,10 @@ async function backfill(): Promise<void> {
           embedding: embeddings[index] ?? [],
           senderName: String(meta['senderName'] ?? 'unknown'),
           type: String(meta['type'] ?? 'text'),
+          transcriptConfidence:
+            Number(meta['transcriptConfidence'] ?? -1) >= 0
+              ? Number(meta['transcriptConfidence'])
+              : null,
           fileName: meta['fileName'] ? String(meta['fileName']) : null,
           page: meta['page'] === undefined ? null : Number(meta['page']),
           readVia: String(meta['readVia'] ?? 'text'),

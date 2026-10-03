@@ -15,6 +15,12 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
   PORT: z.coerce.number().default(defaults.server.port),
 
+  // Changing this creates a fresh logical product dataset without deleting the old one.
+  DATA_VERSION: z
+    .string()
+    .regex(/^[A-Za-z0-9._-]+$/)
+    .default(defaults.app.version),
+
   MONGODB_URL: z.string().default('mongodb://localhost:27017'),
   MONGODB_DATABASE: z.string().default(defaults.database.mongodbDatabase),
 
@@ -117,6 +123,7 @@ const env = envSchema.parse(process.env)
  * missing instead of hours later with a timeout.
  */
 const REQUIRED_IN_PRODUCTION = [
+  'DATA_VERSION',
   'MONGODB_URL',
   'MINIO_ENDPOINT',
   'MINIO_ACCESS_KEY',
@@ -151,17 +158,21 @@ if (env.ENVIRONMENT === 'production') {
  * than as anything that names the cause.
  */
 const [minioHost, minioPort] = env.MINIO_ENDPOINT.split(':')
+const dataNamespace = env.DATA_VERSION.replace(/[^A-Za-z0-9_-]/g, '_')
 
 export const config = {
   env: env.ENVIRONMENT,
   logLevel: env.LOG_LEVEL,
   isProduction: env.ENVIRONMENT === 'production',
 
-  app: defaults.app,
+  app: { ...defaults.app, dataVersion: env.DATA_VERSION },
   server: { host: defaults.server.host, port: env.PORT },
 
-  mongo: { url: env.MONGODB_URL, database: env.MONGODB_DATABASE },
-  chroma: { url: env.CHROMA_URL, collection: defaults.database.chromaCollection },
+  mongo: { url: env.MONGODB_URL, database: `${env.MONGODB_DATABASE}_v${dataNamespace}` },
+  chroma: {
+    url: env.CHROMA_URL,
+    collection: `${defaults.database.chromaCollection}_v${dataNamespace}`,
+  },
   minio: {
     endPoint: minioHost!,
     port: minioPort ? Number(minioPort) : env.MINIO_USE_SSL ? 443 : 9000,
@@ -206,10 +217,7 @@ export const config = {
     whatsappUrl: `https://wa.me/${env.LANDING_WHATSAPP_NUMBER}`,
   },
   email: {
-    enabled:
-      env.SMTP_HOST !== '' &&
-      env.MAIL_FROM !== '' &&
-      env.ADMIN_WAITLIST_EMAIL !== '',
+    enabled: env.SMTP_HOST !== '' && env.MAIL_FROM !== '' && env.ADMIN_WAITLIST_EMAIL !== '',
     host: env.SMTP_HOST,
     port: env.SMTP_PORT,
     username: env.SMTP_USERNAME,

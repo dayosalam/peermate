@@ -45,46 +45,76 @@ beforeEach(() => {
   stored = null
 })
 
-describe('registration without a setup gate', () => {
-  it('registers on first contact and explains immediate capabilities', async () => {
+describe('student-first onboarding', () => {
+  it('starts by asking for the student name', async () => {
     const reply = await onboardingService.handle(said('hi'))
-    expect(reply).toMatch(/remember messages, files and voice notes/i)
-    expect(reply).toMatch(/courses and groups are optional/i)
-    expect(stored!.onboardingState).toBe('registered')
-    expect(stored!.displayName).toBe('Amina Bello')
+    expect(reply).toMatch(/what should I call you/i)
+    expect(stored!.onboardingState).toBe('awaiting_name')
+    expect(stored!.displayName).toBeNull()
     expect(stored!.automaticReminders).toBe(true)
   })
 
-  it('accepts an optional course list without requiring another step', async () => {
-    await onboardingService.handle(said('CSC 301 and MTH 101'))
-    expect(stored!.courseKeys).toEqual(['CSC301', 'MTH101'])
-    expect(stored!.onboardingState).toBe('registered')
+  it('asks for a timetable after learning the name', async () => {
+    await onboardingService.handle(said('hi'))
+    const reply = await onboardingService.handle(said('Amina'))
+    expect(reply).toMatch(/send me your current timetable/i)
+    expect(stored!.displayName).toBe('Amina')
+    expect(stored!.onboardingState).toBe('awaiting_timetable')
   })
 
-  it('does not treat a course mentioned in a question as enrolment', async () => {
-    await onboardingService.handle(said('when is the CSC 301 test?'))
-    expect(stored!.courseKeys).toEqual([])
+  it('lets the timetable confirmation handler receive yes or no', async () => {
+    await onboardingService.handle(said('hi'))
+    stored = {
+      ...stored!,
+      displayName: 'Amina',
+      onboardingState: 'awaiting_timetable_confirmation',
+    }
+
+    expect(await onboardingService.handle(said('yes'))).toBeNull()
+    expect(stored!.onboardingState).toBe('awaiting_timetable_confirmation')
+  })
+
+  it('does not treat a question as the student name', async () => {
+    await onboardingService.handle(said('hi'))
+    const reply = await onboardingService.handle(said('when is the CSC 301 test?'))
+    expect(reply).toMatch(/what should I call you/i)
+    expect(stored!.displayName).toBeNull()
+  })
+
+  it('accepts a class reminder preference and completes registration', async () => {
+    await onboardingService.handle(said('hi'))
+    stored = { ...stored!, displayName: 'Amina', onboardingState: 'awaiting_reminder' }
+    const reply = await onboardingService.handle(said('30 minutes before'))
+    expect(stored!.onboardingState).toBe('registered')
+    expect(stored!.classReminderMinutes).toBe(30)
+    expect(reply).toMatch(/add Peermate/i)
+    expect(reply).toMatch(/which groups are we in together/i)
+  })
+
+  it('accepts a fifteen-minute class reminder preference', async () => {
+    await onboardingService.handle(said('hi'))
+    stored = { ...stored!, displayName: 'Amina', onboardingState: 'awaiting_reminder' }
+
+    await onboardingService.handle(said('15mins'))
+    expect(stored!.onboardingState).toBe('registered')
+    expect(stored!.classReminderMinutes).toBe(15)
   })
 
   it('leaves a registered user out of onboarding', async () => {
     await onboardingService.handle(said('hi'))
-    const before = { ...stored! }
+    stored = { ...stored!, onboardingState: 'registered', registeredAt: new Date() }
+    const before = { ...stored }
     expect(await onboardingService.handle(said('restart'))).toBeNull()
     expect(stored).toEqual(before)
-  })
-
-  it('migrates an account stranded in the old onboarding flow', async () => {
-    await onboardingService.handle(said('hi'))
-    stored = { ...stored!, onboardingState: 'awaiting_courses', registeredAt: null }
-    expect(await onboardingService.handle(said('what did I miss?'))).toMatch(/start right here/i)
-    expect(stored!.onboardingState).toBe('registered')
-    expect(stored!.registeredAt).toBeInstanceOf(Date)
   })
 })
 
 describe('optional profile helpers', () => {
   it('still reads names and digest preferences for settings tools', () => {
     expect(onboardingService.readName("i'm chidi")).toBe('Chidi')
-    expect(onboardingService.parseDigestPreference('6am voice')).toEqual({ hour: 6, format: 'voice' })
+    expect(onboardingService.parseDigestPreference('6am voice')).toEqual({
+      hour: 6,
+      format: 'voice',
+    })
   })
 })
