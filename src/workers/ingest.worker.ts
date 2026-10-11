@@ -71,7 +71,7 @@ async function handle(raw: WAMessage): Promise<void> {
     // caption was answering a question it could not see.
     //
     // A DM must survive that read failing. Transcription throwing used to take the
-    // whole handler to the catch below, so a voice note Whisper could not hear got
+    // whole handler to the catch below, so a voice note the ASR service could not hear got
     // no reply at all — indistinguishable, from the student's side, from Peermate
     // being down. They get told it could not be made out instead.
     if (message.fromGroup) {
@@ -389,7 +389,7 @@ const MAX_AUTO_ATTEMPTS = 3
 export async function recoverUnfinished(): Promise<void> {
   await reprocess(await messageRepository.unfinished(), 'interrupted by a restart')
 
-  // Most failures are transient — a Whisper timeout, a rate limit, a MinIO blip —
+  // Most failures are transient — an ASR timeout, a rate limit, a MinIO blip —
   // and the announcement is lost for good if nobody retries. Capped, so a genuinely
   // broken message is attempted a few times and then left for the operator.
   await reprocess(
@@ -409,7 +409,7 @@ export async function recoverUnfinished(): Promise<void> {
 
 /**
  * Re-runs messages whose pipeline threw. Exposed to the operator as *retry failed*,
- * because a transient Whisper or network error would otherwise lose the announcement
+ * because a transient ASR or network error would otherwise lose the announcement
  * permanently — the stored record blocks WhatsApp's own re-delivery.
  */
 export async function retryFailed(): Promise<number> {

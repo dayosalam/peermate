@@ -28,7 +28,7 @@ Undergraduates in Nigerian universities. WhatsApp is the primary and often only 
 | Stage          | Behaviour                                                                                                                                                                                                                                                                                                       |
 | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Ingest**     | Receives every message in every joined group — text, voice notes, images, PDFs — over a Baileys socket linked to the bot number.                                                                                                                                                                                |
-| **Understand** | Transcribes voice notes (Whisper), reads images (vision), and classifies each message as announcement / question / noise in one call.                                                                                                                                                                           |
+| **Understand** | Transcribes voice notes through N-ATLaS ASR on Modal, reads images (vision), and classifies each message as announcement / question / noise in one call.                                                                                                                                                        |
 | **Extract**    | For announcements: course, event type, date, time, venue — plus source message ID, sender, timestamp.                                                                                                                                                                                                           |
 | **File**       | Every PDF is stored with its filename and provenance but is not opened, parsed, OCR'd or embedded until a student explicitly asks Peermate to use it.                                                                                                                                                           |
 | **Act**        | Answers from the user's private and verified group memory, creates preference-controlled reminders, sends original sources back, and provides cited alerts and digests.                                                                                                                                         |
@@ -97,10 +97,10 @@ Peermate reads the messages of everyone in a connected group, including people w
 - **Original sources are retained with provenance.** Searchable text never replaces the underlying message, file, image or voice note. Answers can be traced to and recover the original source.
 - **The user controls proactive reminders, group modes and deletion.** Dates are extracted automatically; delivery follows the user's reminder preference. Each group can be fully active, deadlines-only, or paused while remaining searchable. A user can forget one group, or delete their account and private messages, embeddings, collections and stored media without deleting shared group history needed by other members. Cross-store account deletion is checkpointed and resumes after a process restart.
 - **The bot number must be a dedicated account.** A companion device sees everything that account sees — its personal DMs and every unrelated group, not just the course groups. Peermate is linked to a fresh SIM used for nothing else. Never link it to a personal WhatsApp account.
-- **OpenAI processes message content.** There is no third-party message broker in the path; the socket is direct. Content leaves the host only for transcription, vision and extraction. Data is not sold or intentionally surfaced outside the staged demo users.
+- **Configured AI providers process message content.** There is no third-party message broker in the path; the socket is direct. Audio leaves the host for N-ATLaS ASR on Modal; relevant text/images leave it for configured OpenAI features. Data is not sold or intentionally surfaced outside the staged demo users.
 - **A group admin can remove the number at any time**, which ends ingestion for that group immediately.
 - **Retention is explicit.** Collected messages, conversation history and original media have no age-based expiry or trimming. They remain until an authorised forget/delete operation or a deliberate version-retirement process removes them.
-- **Processors are disclosed.** OpenAI receives the content needed for transcription, vision, extraction and answers. Exa receives research topics, not the private archive. Video processors must be added to this disclosure before video generation is enabled.
+- **Processors are disclosed.** Modal/N-ATLaS receives voice-note audio for transcription. OpenAI receives the content needed for vision, extraction, embeddings, answers and TTS. Exa receives research topics, not the private archive. Video processors must be added to this disclosure before video generation is enabled.
 
 Before a real group is onboarded, its members must receive the room disclosure and the operator must publish contact, retention and deletion terms. Access control and private deletion are enforced by the product; jurisdiction-specific consent language and institutional approval still require legal review rather than being inferred by the software.
 
@@ -116,7 +116,7 @@ WhatsApp groups
       ▼
   ingest worker
       ├─ persist → messages (raw, append-only, full provenance)
-      ├─ media?  → downloadMediaMessage → MinIO → Whisper (audio) / vision (image)
+      ├─ media?  → downloadMediaMessage → MinIO → N-ATLaS ASR (audio) / vision (image)
       ├─ update  → transcript/OCR result + processing status
       ├─ embed   → Chroma, one document per message
       └─ extract → one LLM call, tagged-union schema
@@ -132,7 +132,7 @@ WhatsApp groups
                       LLM resolves supersession and conflicts from timestamps
 ```
 
-**Stack.** One Node process, TypeScript. Baileys (`@whiskeysockets/baileys`) for WhatsApp, Express for the small HTTP surface that remains (health, admin), the official `mongodb` driver, `chromadb` for vectors, the `minio` SDK for media, the `openai` SDK for Whisper, vision and extraction, and `node-cron` for the 07:00 jobs. Extraction uses OpenAI structured outputs against a zod schema, so the tagged union below is enforced at the API rather than by parsing a reply.
+**Stack.** One Node bot process plus a separate render worker, TypeScript. Baileys (`@whiskeysockets/baileys`) for WhatsApp, Express for the small HTTP surface that remains (health, admin), the official `mongodb` driver, `chromadb` for vectors, the `minio` SDK for media, authenticated N-ATLaS ASR on Modal for voice notes, the `openai` SDK for vision and extraction, and `node-cron` for scheduled jobs. Extraction uses OpenAI structured outputs against a zod schema, so the tagged union below is enforced at the API rather than by parsing a reply.
 
 There is no Node backend in this workspace to copy from — [unidash-api](../unidash-api/) and [unimart-api](../unimart-api/) are Go, [uniwrite-api](../uniwrite-api/) is Python — so what carries over is the layering, not the stack: `src/whatsapp`, `src/services`, `src/repositories`, `src/workers`, `src/db`. The point of that layering was that outbound has exactly one home and storage has exactly one home. That survives the language change, and the split-the-directions escape hatch below depends on it.
 

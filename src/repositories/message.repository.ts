@@ -151,7 +151,7 @@ export class MessageRepository extends BaseRepository<Message> {
   }
 
   /**
-   * Messages whose pipeline threw — a Whisper timeout, a MinIO blip, a rate limit.
+   * Messages whose pipeline threw — an ASR timeout, a MinIO blip, a rate limit.
    *
    * They cannot recover on their own: the record already exists, so WhatsApp's
    * re-delivery is rejected as a duplicate and the announcement is lost for good.

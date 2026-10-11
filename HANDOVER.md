@@ -16,10 +16,10 @@ and what is still open.
 
 ## Where things are
 
-| | |
-|---|---|
-| Working copy | `/Users/salami/Desktop/Startup/ai-agenty` |
-| Repo with the GitHub remote | `/Users/salami/Desktop/peermate` (`dayosalam/peermate`) |
+|                             |                                                                             |
+| --------------------------- | --------------------------------------------------------------------------- |
+| Working copy                | `/Users/salami/Desktop/Startup/ai-agenty`                                   |
+| Repo with the GitHub remote | `/Users/salami/Desktop/peermate` (`dayosalam/peermate`)                     |
 | Superseded Python prototype | `/Users/salami/Desktop/Startup/peermate/legacy-python` — nothing imports it |
 
 The two trees were synced at the end of the session and are identical for `src/`,
@@ -54,7 +54,7 @@ patterns but is now only the implementation behind the `update_settings` tool; n
 matches ahead of the model.
 
 The trigger was a real bug: `LIST` was `/^(…|what courses?.*|…)$/`, and the trailing
-`.*` swallowed *"What course do I have on Tuesday?"* — a timetable question answered
+`.*` swallowed _"What course do I have on Tuesday?"_ — a timetable question answered
 with the enrolment list. Matching on shape rather than meaning is what the agent exists
 to replace.
 
@@ -70,7 +70,7 @@ inventing how Peermate works.
 
 `groupRepository.approved()` returns every group on the deployment. Seven places built
 "which of your courses are covered?" from it, so a student was told a course was
-connected because *somebody else's* group carried the code — and `listening()` printed
+connected because _somebody else's_ group carried the code — and `listening()` printed
 every group on the deployment **by name** to any student who asked. Same class as the
 original cross-institution bug, on the coverage side rather than the content side.
 
@@ -83,8 +83,8 @@ group they are not in.
 The largest change, and the user's explicit decision, made in stages:
 
 1. Whoever adds Peermate to a group approves it, not the operator.
-2. Nobody is notified about anyone else's group — *"we are 2 different users, peermate
-   deals with me separately, and deals with chidi separately."*
+2. Nobody is notified about anyone else's group — _"we are 2 different users, peermate
+   deals with me separately, and deals with chidi separately."_
 3. The operator role was removed entirely.
 
 **Authority over a group is being in it**, proved by `membershipService.mayAdminister`
@@ -93,7 +93,7 @@ The largest change, and the user's explicit decision, made in stages:
 `dm.service.ts`, and every "the operator has to approve this" answer in guidance.
 
 Replaced by four tools, each resolving the group from the student's own groups and
-re-checking membership *inside the tool*: `set_group_course`, `trust_sender`,
+re-checking membership _inside the tool_: `set_group_course`, `trust_sender`,
 `stop_reading_group` (destructive tier), `file_announcement`.
 
 Groups gained `approvedBy` — an address, not a name. `proposedBy` holds a display name,
@@ -200,7 +200,7 @@ corpus. If it over-reaches, a validator becomes an addition rather than a refact
 
 **The MP4 is the product; the hosted link is the fallback.** A measured explainer is
 0.7MB and plays inline in WhatsApp, which is the better experience on a Nigerian data
-plan and, more importantly, never becomes a URL. `cdn-vercel-upload` returns a *public*
+plan and, more importantly, never becomes a URL. `cdn-vercel-upload` returns a _public_
 address, and a lecturer's material on a public CDN is the same leak the tenancy boundary
 exists to prevent, arriving through the front door. Hosting is for renders too large to
 send, and it stays in the flow because it is real and demonstrable — not because it is
@@ -264,14 +264,14 @@ https://agent.livepeer.org/api/mcp     # streamable http, no auth
 
 Verified against the live server, not a doc. An unauthenticated `initialize` answers
 `serverInfo.name = "livepeer-agent-raw (demo credits — no key)"`, and `me` reports that
-every model and every tool is available keyless — what is limited is *spend*, drawn
+every model and every tool is available keyless — what is limited is _spend_, drawn
 from a demo balance at each model's real price. A `chatterbox-tts` run cost $0.0019
 against $51.94 of headroom and returned real audio: 4.2s, 24kHz mono, 214KB, probed
 after downloading it. Glama's page for this server documents OAuth and dynamic client
 registration; it is as stale as the `sk_` page. Configured in [.mcp.json](.mcp.json),
 which Claude Code reads at startup.
 
-**This does not by itself feed `render/`.** An MCP connector is the *agent's*
+**This does not by itself feed `render/`.** An MCP connector is the _agent's_
 credential, and the render runner is deliberately a subprocess — that wall is what
 keeps a 16-second render outside a 45-second tool budget. What does carry over is that
 the endpoint is ordinary HTTP: a JSON-RPC `tools/call` of `run_capability`
@@ -294,7 +294,7 @@ and deliver the result. `render_jobs` is durable, keyed so asking twice renders 
 with `take()` using `findOneAndUpdate` and a `recoverUnfinished()` sweep. Nothing
 consumes it yet.
 
-**Not built:** no transcript correction tool; audio over 25MB is not chunked; no rate
+**Not built:** no transcript correction tool; audio over 20MB is not chunked; no rate
 limiting or abuse controls; no cost tracking; no backup-restore drill.
 
 ## Gotchas found empirically — these will cost you hours
@@ -309,9 +309,11 @@ limiting or abuse controls; no cost tracking; no backup-restore drill.
   `-t` from the measured audio length instead.
 - **This machine's ffmpeg has no libass and no freetype**, so `subtitles` and `drawtext`
   do not exist. Captions are drawn on the canvas, which is more portable anyway.
-- **`gpt-4o-transcribe` beats whisper-1 decisively** on real code-switched Yoruba, where
-  whisper produced gibberish. Measured on the user's own recordings. Do not swap it for a
-  Livepeer-hosted whisper without re-benchmarking.
+- **ASR was replaced on 11 October 2026.** The earlier OpenAI comparison below is
+  historical: `gpt-4o-transcribe` beat `whisper-1` on the user's code-switched Yoruba
+  recordings, but the shipping path now calls the authenticated N-ATLaS Voice API on
+  Modal with automatic Yoruba/Hausa/Igbo/English routing. Re-benchmark the new path
+  with `npm run hear`; Modal's `language_confidence` is not transcription confidence.
 - **The model calculates no dates.** `calendarWindow()` offers real days and the
   extractor picks one. Asked what "this Friday" meant, it once returned a Tuesday — at
   confidence 1.0.
@@ -319,7 +321,7 @@ limiting or abuse controls; no cost tracking; no backup-restore drill.
   duration, size and codec while every slide in it was blank. Extract a frame.
 - **Livepeer's tool capabilities take undocumented parameters, and drop the ones they do
   not recognise without a word.** `describe_capability` returns `example_inputs:
-  {prompt: "<your prompt>"}` for every ffmpeg tool, which is boilerplate, and
+{prompt: "<your prompt>"}` for every ffmpeg tool, which is boilerplate, and
   `openapi.json` on the SDK host has no per-tool schema at all. `ffmpeg-kenburns` wants
   `duration_sec`; `duration` and `seconds` are both accepted, ignored, and answered with
   the 5-second default. The first spike therefore produced a clean 720p h264 video whose

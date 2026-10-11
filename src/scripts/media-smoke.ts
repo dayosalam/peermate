@@ -1,7 +1,7 @@
 /**
  * The differentiator, end to end.
  *
- * Runs a real voice note through Whisper and a real timetable image through vision,
+ * Runs a real voice note through N-ATLaS ASR and a real timetable image through vision,
  * then extracts from each transcript. These are the two paths that cannot be checked
  * with text fixtures, and the two the demo is built on.
  *
@@ -74,7 +74,7 @@ async function main(): Promise<void> {
   await connectMinio()
   await connectChroma()
 
-  section('1. voice note → Whisper')
+  section('1. voice note → N-ATLaS ASR')
   const audio = readFileSync('.local/fixtures/voicenote.m4a')
   console.log(`input: ${(audio.length / 1024).toFixed(0)} KB of audio, nobody played it`)
   const { text: transcript, confidence } = await transcriptionService.transcribe(audio, 'audio/mp4')

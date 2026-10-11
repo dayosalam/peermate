@@ -17,6 +17,20 @@ cp .env.example .env      # set the required API, storage, and WhatsApp values
 docker compose up --build
 ```
 
+Voice-note transcription uses the authenticated N-ATLaS ASR endpoint on Modal. Add
+the proxy token returned by Modal to `.env`:
+
+```dotenv
+MODAL_PROXY_TOKEN_ID=wk-...
+MODAL_PROXY_TOKEN_SECRET=ws-...
+MODAL_ASR_LANGUAGE=auto
+MODAL_ASR_MIN_CONFIDENCE=0.35
+```
+
+The token is read only by the server process and must never be committed or exposed
+to the landing page. Automatic detection routes Yoruba, Hausa, Igbo, or English to
+the corresponding N-ATLaS checkpoint.
+
 The first boot has to be paired. Set `WHATSAPP_PAIRING_NUMBER` to the bot's number
 (digits only, country code, no `+`) and read the code out of the logs:
 

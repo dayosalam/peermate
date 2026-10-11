@@ -22,7 +22,6 @@
     "extractionModel": "gpt-4o-mini",
     "answerModel": "gpt-4o",
     "visionModel": "gpt-4o",
-    "transcriptionModel": "gpt-4o-transcribe",
     "ttsModel": "gpt-4o-mini-tts",
     "ttsVoice": "alloy",
     "routingModel": "gpt-4o-mini"

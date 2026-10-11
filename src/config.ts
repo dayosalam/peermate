@@ -61,6 +61,17 @@ const envSchema = z.object({
 
   OPENAI_API_KEY: z.string().default(''),
 
+  // Authenticated N-ATLaS speech-to-text endpoint hosted on Modal.
+  MODAL_ASR_URL: z
+    .string()
+    .url()
+    .default('https://dayosalamboi--natlas-voice-api.modal.run/transcribe'),
+  MODAL_PROXY_TOKEN_ID: z.string().default(''),
+  MODAL_PROXY_TOKEN_SECRET: z.string().default(''),
+  MODAL_ASR_LANGUAGE: z.enum(['auto', 'yoruba', 'hausa', 'igbo', 'english']).default('auto'),
+  MODAL_ASR_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.35),
+  MODAL_ASR_TIMEOUT_MS: z.coerce.number().int().positive().default(190_000),
+
   // Optional observability. Off by default because traces contain student messages
   // and retrieved course material; enabling it is an explicit data-sharing choice.
   LANGSMITH_TRACING: booleanFromEnv.default('false'),
@@ -129,6 +140,8 @@ const REQUIRED_IN_PRODUCTION = [
   'MINIO_ACCESS_KEY',
   'MINIO_SECRET_KEY',
   'OPENAI_API_KEY',
+  'MODAL_PROXY_TOKEN_ID',
+  'MODAL_PROXY_TOKEN_SECRET',
   'ADMIN_PHONE',
   'SMTP_HOST',
   'SMTP_USERNAME',
@@ -187,6 +200,14 @@ export const config = {
     pairingNumber: env.WHATSAPP_PAIRING_NUMBER,
   },
   openai: { apiKey: env.OPENAI_API_KEY, ...defaults.llm },
+  asr: {
+    url: env.MODAL_ASR_URL,
+    modalTokenId: env.MODAL_PROXY_TOKEN_ID,
+    modalTokenSecret: env.MODAL_PROXY_TOKEN_SECRET,
+    language: env.MODAL_ASR_LANGUAGE,
+    minConfidence: env.MODAL_ASR_MIN_CONFIDENCE,
+    timeoutMs: env.MODAL_ASR_TIMEOUT_MS,
+  },
   langsmith: {
     enabled: env.LANGSMITH_TRACING && env.LANGSMITH_API_KEY !== '',
     project: env.LANGSMITH_PROJECT,

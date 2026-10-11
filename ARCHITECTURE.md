@@ -57,6 +57,7 @@ flowchart LR
     Landing[Landing-page visitor]
     WhatsApp[WhatsApp network]
     OpenAI[OpenAI APIs]
+    Natlas[N-ATLaS Voice API on Modal]
     Exa[Exa search - optional]
     SMTP[SMTP provider - optional]
     Livepeer[Livepeer / Daydream network]
@@ -76,7 +77,8 @@ flowchart LR
     App <-->|records, jobs, outbox| Mongo
     App <-->|embeddings and retrieval| Chroma
     App <-->|media bytes| MinIO
-    App <-->|LLM, vision, transcription, embeddings, TTS| OpenAI
+    App <-->|LLM, vision, embeddings, TTS| OpenAI
+    App -->|authenticated multipart audio transcription| Natlas
     App -->|optional further-reading search| Exa
     App -->|optional signup emails| SMTP
     Worker <-->|claims jobs and writes outbox| Mongo
@@ -95,6 +97,7 @@ sequenceDiagram
     participant I as Ingest worker
     participant M as MongoDB
     participant O as MinIO
+    participant ASR as N-ATLaS ASR on Modal
     participant AI as OpenAI
     participant V as Chroma or Atlas search
     participant D as Delivery service
@@ -106,8 +109,10 @@ sequenceDiagram
     I->>M: Check group status and insert message if new
     opt Media
         I->>O: Store original bytes
-        I->>AI: Transcribe audio or read image
-        AI-->>I: Text plus transcription confidence when available
+        I->>ASR: Transcribe audio with automatic language detection
+        ASR-->>I: Text plus detected language confidence
+        I->>AI: Read image when the media is a photo
+        AI-->>I: Visible text
     end
     opt Document
         I->>M: File resource metadata first
@@ -276,15 +281,16 @@ render worker or baked into an image.
 
 ## 5. External Integrations / APIs
 
-| Integration                     | Status                                 | Use                                                                                                |
-| ------------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| WhatsApp via Baileys            | Active, required                       | Inbound group/DM events and every outbound student DM.                                             |
-| OpenAI                          | Active, required for AI features       | Extraction, agent reasoning, embeddings, transcription, image reading, planning, and optional TTS. |
-| Livepeer/Daydream agent network | Active when video rendering is enabled | Narration, media capabilities, upload/hosting, and render-related network operations.              |
-| Exa                             | Optional                               | Clearly labelled further-reading discovery and downloadable course material.                       |
-| SMTP                            | Optional                               | Admin notification and student welcome email after landing-page signup.                            |
-| LangSmith                       | Optional                               | OpenAI tracing when explicitly enabled.                                                            |
-| Meta WhatsApp Cloud API         | Implemented but inactive               | Future split-direction send path; current runtime sends through Baileys.                           |
+| Integration                     | Status                                 | Use                                                                                                   |
+| ------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| WhatsApp via Baileys            | Active, required                       | Inbound group/DM events and every outbound student DM.                                                |
+| N-ATLaS Voice API on Modal      | Active, required for voice-note ASR    | Detects Yoruba, Hausa, Igbo, or English and transcribes through the corresponding N-ATLaS checkpoint. |
+| OpenAI                          | Active, required for other AI features | Extraction, agent reasoning, embeddings, image reading, planning, and TTS.                            |
+| Livepeer/Daydream agent network | Active when video rendering is enabled | Narration, media capabilities, upload/hosting, and render-related network operations.                 |
+| Exa                             | Optional                               | Clearly labelled further-reading discovery and downloadable course material.                          |
+| SMTP                            | Optional                               | Admin notification and student welcome email after landing-page signup.                               |
+| LangSmith                       | Optional                               | OpenAI tracing when explicitly enabled.                                                               |
+| Meta WhatsApp Cloud API         | Implemented but inactive               | Future split-direction send path; current runtime sends through Baileys.                              |
 
 ## 6. Deployment & Infrastructure
 
@@ -365,7 +371,7 @@ Operational cautions:
   authenticated reverse proxy protects them.
 - The signup rate limiter is in-memory and per process; it is not a distributed abuse
   control.
-- Student content is sent to configured AI/search/render providers when those features
+- Student content is sent to configured ASR/AI/search/render providers when those features
   are used. Provider retention and data-processing terms are deployment concerns.
 - A hosted oversized video URL may be public. Inline WhatsApp delivery is the preferred
   path for private course material.

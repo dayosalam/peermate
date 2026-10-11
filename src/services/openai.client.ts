@@ -6,7 +6,7 @@ let client: OpenAI | null = null
 
 export function getOpenAI(): OpenAI {
   if (!config.openai.apiKey) {
-    throw new Error('OPENAI_API_KEY is not set — transcription, extraction and Q&A cannot run')
+    throw new Error('OPENAI_API_KEY is not set — extraction, embeddings and Q&A cannot run')
   }
   if (!client) {
     const openai = new OpenAI({ apiKey: config.openai.apiKey })

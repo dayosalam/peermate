@@ -11,10 +11,10 @@ made. Read it before proposing a different one.
 
 ## Related Projects
 
-| Project | Role | Path |
-|---------|------|------|
-| unimart-api | `formatPhoneAsChatID` — the phone normalisation this ports, in Go | `/Users/salami/Desktop/Startup/unimart-api` |
-| uniwrite-api | Pattern source for the layering (Python, not a stack reference) | `/Users/salami/Desktop/Startup/uniwrite-api` |
+| Project      | Role                                                              | Path                                         |
+| ------------ | ----------------------------------------------------------------- | -------------------------------------------- |
+| unimart-api  | `formatPhoneAsChatID` — the phone normalisation this ports, in Go | `/Users/salami/Desktop/Startup/unimart-api`  |
+| uniwrite-api | Pattern source for the layering (Python, not a stack reference)   | `/Users/salami/Desktop/Startup/uniwrite-api` |
 
 ## Tech Stack
 
@@ -25,7 +25,8 @@ made. Read it before proposing a different one.
 - **Search:** MongoDB Atlas `$vectorSearch` + `$search`, merged by reciprocal rank
   fusion. Chroma is still wired for the staged cutover — see `SEARCH_BACKEND`
 - **Storage:** MinIO (voice notes, images, course documents)
-- **AI:** OpenAI — Whisper for voice notes, structured outputs for extraction
+- **AI:** N-ATLaS on Modal for voice-note ASR; OpenAI for structured extraction,
+  vision, embeddings, answers and TTS
 - **Embeddings:** `text-embedding-3-small`, **512-dim** (shortened deliberately — a
   third of the storage, and these now live in Atlas beside everything else)
 - **Testing:** vitest
@@ -116,7 +117,7 @@ These are decisions, not defaults. Changing one changes the product.
   `courseKey` is the same string at every university that issues the code, so matching
   on it alone put one school's announcements, files and citations in another school's
   DMs. Every read — retrieval, the shelf, announcements, digests, reminders — is
-  filtered by `chatJid ∈ user.groupJids` *before* the course narrows it, and
+  filtered by `chatJid ∈ user.groupJids` _before_ the course narrows it, and
   `groupJids` is passed explicitly rather than defaulted so the compiler finds a new
   read path that forgot it. An empty boundary returns nothing rather than everything:
   fail closed, or every pre-tenancy account sees the world. See
@@ -124,7 +125,7 @@ These are decisions, not defaults. Changing one changes the product.
   the real queries rather than by inspecting them.
 - **Belonging to a group is proved, never claimed.** Course codes are self-reported.
   A student reaches a group only by having added Peermate to it, or by appearing in
-  its participant list. A check that cannot complete leaves the group *unverified* —
+  its participant list. A check that cannot complete leaves the group _unverified_ —
   a dropped socket must not be what grants access. See
   [MembershipService](src/services/membership.service.ts).
 - **JIDs are built in one place.** Individuals are `@s.whatsapp.net`, never Green API's
@@ -133,7 +134,7 @@ These are decisions, not defaults. Changing one changes the product.
 - **A document is filed before it is read.** DocumentService tags every file; the
   reader is a second pass that may fail without consequence. A file that cannot be
   read is indexed as unreadable rather than skipped, so students are told the truth
-  instead of being told it does not exist. Chunking happens *within* one file only —
+  instead of being told it does not exist. Chunking happens _within_ one file only —
   no embedding ever blends two senders.
 - **Retrieval favours recall.** Read-time conflict resolution can only compare records
   retrieval returned, so filter by course and window, then take a generous k.
@@ -151,7 +152,7 @@ These are decisions, not defaults. Changing one changes the product.
   and web pages are written by people who have agreed to nothing, and a document
   saying "ignore your instructions" is realistic rather than hypothetical. Retrieved
   content is fenced by `asEvidence()` and labelled as quoted material — but the load
-  is carried by tools authorising independently, so a model that *is* talked into
+  is carried by tools authorising independently, so a model that _is_ talked into
   trying still reaches nothing the student could not.
 - **A generated visual is never load-bearing.** A model asked to draw a shear force
   diagram puts the arrows the wrong way round, and the student revising from it is the
@@ -213,7 +214,7 @@ These are decisions, not defaults. Changing one changes the product.
 
 ## Conventions
 
-- Comments explain *why*, never *what*. If the code says it, don't restate it.
+- Comments explain _why_, never _what_. If the code says it, don't restate it.
 - Repositories own all Mongo access; services never touch a collection directly.
 - Every pipeline stage fails soft — a message that cannot be transcribed is still a
   stored message, and the digest still goes out.
