@@ -110,6 +110,17 @@ const envSchema = z.object({
   // is noise — our own connection.update logging covers what actually matters.
   BAILEYS_LOG_LEVEL: z.enum(['silent', 'error', 'warn', 'info', 'debug']).default('silent'),
 
+  // Landing page and waitlist email. Optional: email is disabled unless SMTP_HOST,
+  // MAIL_FROM and ADMIN_WAITLIST_EMAIL are all set.
+  LANDING_WHATSAPP_NUMBER: z.string().default(''),
+  SMTP_HOST: z.string().default(''),
+  SMTP_PORT: z.coerce.number().default(587),
+  SMTP_USERNAME: z.string().default(''),
+  SMTP_PASSWORD: z.string().default(''),
+  SMTP_USE_SSL: booleanFromEnv.default('false'),
+  SMTP_USE_TLS: booleanFromEnv.default('true'),
+  MAIL_FROM: z.string().default(''),
+  ADMIN_WAITLIST_EMAIL: z.string().default(''),
 })
 
 const env = envSchema.parse(process.env)
