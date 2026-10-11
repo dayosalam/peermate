@@ -110,16 +110,6 @@ const envSchema = z.object({
   // is noise — our own connection.update logging covers what actually matters.
   BAILEYS_LOG_LEVEL: z.enum(['silent', 'error', 'warn', 'info', 'debug']).default('silent'),
 
-  // Landing-page lead capture. Google signup is intentionally disabled for now.
-  LANDING_WHATSAPP_NUMBER: z.string().regex(/^\d+$/).default('15076046411'),
-  SMTP_HOST: z.string().default(''),
-  SMTP_PORT: z.coerce.number().int().min(1).max(65_535).default(587),
-  SMTP_USERNAME: z.string().default(''),
-  SMTP_PASSWORD: z.string().default(''),
-  SMTP_USE_TLS: booleanFromEnv.default('true'),
-  SMTP_USE_SSL: booleanFromEnv.default('false'),
-  MAIL_FROM: z.string().default(''),
-  ADMIN_WAITLIST_EMAIL: z.string().default(''),
 })
 
 const env = envSchema.parse(process.env)
@@ -143,11 +133,6 @@ const REQUIRED_IN_PRODUCTION = [
   'MODAL_PROXY_TOKEN_ID',
   'MODAL_PROXY_TOKEN_SECRET',
   'ADMIN_PHONE',
-  'SMTP_HOST',
-  'SMTP_USERNAME',
-  'SMTP_PASSWORD',
-  'MAIL_FROM',
-  'ADMIN_WAITLIST_EMAIL',
 ] as const
 
 if (env.ENVIRONMENT === 'production') {
