@@ -2,9 +2,11 @@ import { config } from '../config.js'
 import { logger } from '../core/logger.js'
 import type { Authority, Group, User } from '../models/index.js'
 import { groupRepository, pendingRepository, userRepository } from '../repositories/index.js'
-import { courseKey } from '../utils/courses.js'
-import { jidToIdentity, jidToPhone, samePhone } from '../whatsapp/jid.js'
+import { courseKey, parseCourseList } from '../utils/courses.js'
+import { jidToPhone, samePhone } from '../whatsapp/jid.js'
 import { notifierService } from './notifier.service.js'
+import { membershipService } from './membership.service.js'
+import { participatingGroups } from '../whatsapp/socket.js'
 
 export interface GroupContext {
   subject: string | null
@@ -45,10 +47,15 @@ export class GroupService {
         patch.status = 'approved'
         patch.approvedAt = new Date()
       }
-      if (Object.keys(patch).length === 0) return existing
+      if (
+        context.participantCount !== undefined &&
+        context.participantCount !== existing.participantCount
+      ) {
+        patch.participantCount = context.participantCount
+      }
       const updated = { ...existing, ...patch }
-      await groupRepository.upsert(updated)
-      if (existing.status === 'pending') await this.notifyConnected(updated)
+      if (Object.keys(patch).length > 0) await groupRepository.upsert(updated)
+      await this.notifyConnected(updated)
       return updated
     }
 
@@ -59,6 +66,7 @@ export class GroupService {
       // the user's conversation with the agent can classify it later.
       defaultCourse: null,
       defaultCourseKey: null,
+      courseKeys: [],
       purpose: null,
       status: 'approved',
       // The socket that saw this group is the only one that can read it.
@@ -77,6 +85,18 @@ export class GroupService {
     logger.info({ chatJid, subject: context.subject }, 'group connected')
     await this.notifyConnected(group)
     return group
+  }
+
+  /** Reconciles groups from the live WhatsApp account on every startup. */
+  async syncLiveGroups(): Promise<number> {
+    const live = await participatingGroups()
+    for (const group of live) {
+      await this.register(group.chatJid, {
+        subject: group.subject,
+        participantCount: group.participantCount,
+      })
+    }
+    return live.length
   }
 
   async approve(chatJid: string, course: string | null): Promise<Group | null> {
@@ -150,7 +170,12 @@ export class GroupService {
    * Without it every sender is equal, so a lecturer's correction and a classmate's
    * half-remembered version arrive as two separate alerts of the same weight.
    */
-  async trust(chatJid: string, name: string, role: Authority): Promise<Group | null> {
+  async trust(
+    chatJid: string,
+    name: string,
+    role: Authority,
+    jid: string | null = null,
+  ): Promise<Group | null> {
     const group = await groupRepository.findByJid(chatJid)
     if (!group) return null
 
@@ -159,10 +184,39 @@ export class GroupService {
     )
     const updated: Group = {
       ...group,
-      trustedSenders: [...others, { name, jid: null, role }],
+      trustedSenders: [...others, { name, jid, role }],
     }
     await groupRepository.upsert(updated)
     logger.info({ chatJid, name, role }, 'trusted sender recorded')
+    return updated
+  }
+
+  /** Learns a participant's display name and binds a pending trusted role to their JID. */
+  async observeSender(
+    chatJid: string,
+    senderJid: string | null,
+    senderName: string | null,
+  ): Promise<Group | null> {
+    const group = await groupRepository.findByJid(chatJid)
+    if (!group || !senderJid) return group
+
+    const lowered = senderName?.trim().toLowerCase() ?? null
+    let changed = false
+    const participants = (group.participants ?? []).map((member) => {
+      if (![member.jid, member.lid, member.phoneNumber].includes(senderJid)) return member
+      if (!senderName || member.name === senderName) return member
+      changed = true
+      return { ...member, name: senderName, observedAt: new Date() }
+    })
+    const trustedSenders = group.trustedSenders.map((trusted) => {
+      if (trusted.jid || !lowered || trusted.name.trim().toLowerCase() !== lowered) return trusted
+      changed = true
+      return { ...trusted, jid: senderJid }
+    })
+    if (!changed) return group
+
+    const updated = { ...group, participants, trustedSenders }
+    await groupRepository.upsert(updated)
     return updated
   }
 
@@ -235,7 +289,13 @@ export class GroupService {
   async setCourse(chatJid: string, course: string | null): Promise<Group | null> {
     const group = await groupRepository.findByJid(chatJid)
     if (!group) return null
-    const updated: Group = { ...group, defaultCourse: course, defaultCourseKey: courseKey(course) }
+    const key = courseKey(course)
+    const updated: Group = {
+      ...group,
+      defaultCourse: course,
+      defaultCourseKey: key,
+      courseKeys: key ? [...new Set([...(group.courseKeys ?? []), key])] : (group.courseKeys ?? []),
+    }
     await groupRepository.upsert(updated)
     logger.info({ chatJid, course }, 'group course set')
     return updated
@@ -244,7 +304,12 @@ export class GroupService {
   async setPurpose(chatJid: string, purpose: string): Promise<Group | null> {
     const group = await groupRepository.findByJid(chatJid)
     if (!group) return null
-    const updated: Group = { ...group, purpose }
+    const keys = parseCourseList(purpose)
+    const updated: Group = {
+      ...group,
+      purpose,
+      courseKeys: [...new Set([...(group.courseKeys ?? []), ...keys])],
+    }
     await groupRepository.upsert(updated)
     logger.info({ chatJid }, 'group purpose set')
     return updated
@@ -255,29 +320,28 @@ export class GroupService {
    * one exception: they configured the bot, and this is the only way to ask.
    */
 
-  /** Records connection once and privately confirms only with a known Peermate user. */
+  /** Privately confirms once with every registered student currently in the group. */
   private async notifyConnected(group: Group): Promise<void> {
     // This marker now means the connection was recorded. Peermate never posts in the
     // room; every explanation and confirmation belongs in a user's private chat.
     await groupRepository.claimGroupDisclosure(group.chatJid)
 
-    if (group.addedBy && (await groupRepository.claimAdderNotice(group.chatJid))) {
+    const students = await userRepository.onShard(group.shardId)
+    for (const student of students) {
+      if (!(await membershipService.isCurrentMember(student, group))) continue
+      if (!(await userRepository.claimGroupNotice(student.phone, group.chatJid))) continue
       try {
         const where = group.name ?? 'this group'
-        const identity = jidToIdentity(group.addedBy)
-        const adder = identity ? await userRepository.findByPhone(identity) : null
-        if (!adder) {
-          await groupRepository.releaseAdderNotice(group.chatJid)
-          return
-        }
-        await userRepository.addGroup(adder.phone, group.chatJid)
+        await userRepository.addGroup(student.phone, group.chatJid)
+        const members =
+          group.participantCount == null ? '' : ` with *${group.participantCount} members*`
         await notifierService.sendText(
-          adder.jid,
-          `📎 I'm connected to *${where}* and learning from new messages now. You can ask me privately about anything shared there; a course label is optional.`,
+          student.jid,
+          `📎 I've been added to *${where}*${members}. I'm learning from new messages now and will stay silent in the group.\n\nWhen you're done adding groups, ask *"which groups are we in together?"* and tell me which courses each one covers.`,
         )
-        logger.info({ chatJid: group.chatJid, phone: adder.phone }, 'confirmed group connection')
+        logger.info({ chatJid: group.chatJid, phone: student.phone }, 'confirmed group connection')
       } catch (error) {
-        await groupRepository.releaseAdderNotice(group.chatJid)
+        await userRepository.releaseGroupNotice(student.phone, group.chatJid)
         throw error
       }
     }

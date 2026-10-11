@@ -38,6 +38,31 @@ Rules:
  * there is no PDF parsing anywhere in this codebase.
  */
 export class DocumentService {
+  /** Stores a PDF without sending its contents to any parser or model. */
+  async fileLazy(message: Message): Promise<Resource | null> {
+    if (message.type !== 'document' || !message.mediaKey) return null
+    const fileName = message.fileName ?? `${message.waMessageId}.pdf`
+    const named = codeInName(fileName)
+    const course = named ? (courseDisplay(named) ?? named) : null
+    const resource: Resource = {
+      course,
+      courseKey: courseKey(course),
+      chatJid: message.chatJid,
+      docType: 'other',
+      fileName,
+      mediaKey: message.mediaKey,
+      mimeType: message.mimeType,
+      postedBy: message.senderName,
+      postedAt: message.timestamp,
+      sourceMessageId: message.waMessageId,
+      processedAt: null,
+      processingError: null,
+    }
+    await resourceRepository.insert(resource)
+    logger.info({ fileName }, 'pdf stored for lazy processing')
+    return resource
+  }
+
   async file(
     message: Message,
     precedingTexts: string[],

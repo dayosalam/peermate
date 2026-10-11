@@ -16,7 +16,6 @@ export function normalize(raw: WAMessage): Message | null {
   if (!waMessageId || !chatJid || !raw.message) return null
 
   const fromGroup = isGroupJid(chatJid)
-  const senderJid = fromGroup ? (raw.key.participant ?? null) : chatJid
   const contentType = getContentType(raw.message)
   const content = contentType ? raw.message[contentType] : undefined
   const media =
@@ -28,6 +27,12 @@ export function normalize(raw: WAMessage): Message | null {
     raw.message.extendedTextMessage?.contextInfo ??
     (media['contextInfo'] as { stanzaId?: string | null } | undefined) ??
     null
+  const senderJid = fromGroup
+    ? (raw.key.participant ??
+      (raw as WAMessage & { participant?: string | null }).participant ??
+      (contextInfo as { participant?: string | null } | null)?.participant ??
+      null)
+    : chatJid
 
   return {
     waMessageId,

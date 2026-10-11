@@ -158,6 +158,8 @@ function reactionTo(text: string): 'puzzled' | 'acknowledgement' | 'not-emoji' {
  * student costs nothing and makes the thread read like a conversation.
  */
 const inFlight = new Map<string, Promise<void>>()
+const membershipRefreshedAt = new Map<string, number>()
+const MEMBERSHIP_REFRESH_MS = 60_000
 
 /**
  * Everything a student sends in a 1:1 DM lands here.
@@ -221,7 +223,23 @@ export class DmService {
     }
 
     const stored = await userRepository.findByPhone(phone)
-    if (!stored || stored.onboardingState !== 'registered') return
+    if (!stored) return
+    if (stored.onboardingState === 'awaiting_timetable') {
+      const handled = timetableService.looksLikeTimetable(message)
+        ? await this.readTimetable(stored, message, true)
+        : false
+      if (!handled)
+        await notifierService.sendText(
+          message.chatJid,
+          "I couldn't read a timetable from that. Send a photo, PDF, document, pasted text, or type the course, day and time for each class.",
+        )
+      return
+    }
+    if (stored.onboardingState === 'awaiting_timetable_confirmation') {
+      await this.finishOnboardingTimetable(stored, text, message.chatJid)
+      return
+    }
+    if (stored.onboardingState !== 'registered') return
 
     await this.processRegistered(stored, message, text)
   }
@@ -230,9 +248,15 @@ export class DmService {
     const phone = stored.phone
     // Membership, not a course list, grants access to group memory. Refresh on a DM
     // so an existing user gains a newly connected group without another setup flow.
-    await membershipService.subscribe(stored).catch((error) => {
-      logger.warn({ err: error, phone }, 'could not refresh group membership')
-    })
+    const lastMembershipRefresh = membershipRefreshedAt.get(phone) ?? 0
+    if (Date.now() - lastMembershipRefresh >= MEMBERSHIP_REFRESH_MS) {
+      await membershipService
+        .subscribe(stored)
+        .then(() => membershipRefreshedAt.set(phone, Date.now()))
+        .catch((error) => {
+          logger.warn({ err: error, phone }, 'could not refresh group membership')
+        })
+    }
     const refreshed = (await userRepository.findByPhone(phone)) ?? stored
     // Checked here rather than swept on a timer, so a pause that ran out while the
     // process was down is still over when it comes back up.
@@ -276,7 +300,13 @@ export class DmService {
 
     // A photographed timetable is not a question. Routed as one it becomes a search
     // for whatever the OCR happened to say, which is never what they meant.
-    if (timetableService.looksLikeTimetable(message)) {
+    const explicitlyUpdatingTimetable =
+      message.type === 'image' ||
+      message.type === 'document' ||
+      /\b(my timetable|my schedule|class timetable|update (?:my )?(?:timetable|schedule)|new timetable|class times?)\b/i.test(
+        text,
+      )
+    if (explicitlyUpdatingTimetable && timetableService.looksLikeTimetable(message)) {
       if (await this.readTimetable(user, message)) return
     }
 
@@ -450,7 +480,7 @@ Which course is it for? Send the code, like *CVE 575*. If it carries every cours
    * Returns false when the picture is not a timetable, so an ordinary photo with a
    * question in the caption still reaches the router.
    */
-  private async readTimetable(user: User, message: Message): Promise<boolean> {
+  private async readTimetable(user: User, message: Message, onboarding = false): Promise<boolean> {
     const read = await notifierService.withTyping(message.chatJid, () =>
       timetableService.read(message),
     )
@@ -496,11 +526,44 @@ Which course is it for? Send the code, like *CVE 575*. If it carries every cours
     const added = await this.watchCoursesIn(user, read.entries)
 
     await conversationService.proposeTimetable(user.phone, read)
+    if (onboarding) {
+      await onboardingService.timetableReady(
+        user,
+        read.entries.map((entry) => entry.courseKey).filter((key): key is string => Boolean(key)),
+      )
+    }
     const note = added.length
       ? `\n\n_I've added ${added.map(courseDisplay).join(', ')} to your courses — they were on it and you weren't watching them._`
       : ''
     await this.say(user.phone, message.chatJid, `${scheduleService.preview(read, user)}${note}`)
     return true
+  }
+
+  private async finishOnboardingTimetable(user: User, text: string, jid: string): Promise<void> {
+    const conversation = await conversationService.get(user.phone)
+    if (!conversation?.timetable) {
+      await this.say(user.phone, jid, await onboardingService.timetableRejected(user))
+      return
+    }
+    if (DECLINED.test(text)) {
+      await conversationService.proposeTimetable(user.phone, null)
+      await this.say(user.phone, jid, await onboardingService.timetableRejected(user))
+      return
+    }
+    if (!AGREED.test(text)) {
+      await this.say(user.phone, jid, 'Is the timetable I read correct? Reply *yes* or *no*.')
+      return
+    }
+
+    await conversationService.proposeTimetable(user.phone, null)
+    const refreshed = (await userRepository.findByPhone(user.phone)) ?? user
+    const stored = await scheduleService.apply(refreshed, conversation.timetable as ReadTimetable)
+    const next = await onboardingService.timetableAccepted(refreshed)
+    await this.say(
+      user.phone,
+      jid,
+      `Saved ${stored} timetable item${stored === 1 ? '' : 's'} 👍\n\n${next}`,
+    )
   }
 
   /** A photographed course list, which is a request to watch those courses. */

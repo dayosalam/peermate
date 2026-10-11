@@ -34,6 +34,7 @@ import { courseDisplay, courseKey, parseCourseList } from '../../utils/courses.j
 import { closestNamed } from '../../utils/similarity.js'
 import { formatStamp } from '../../utils/dates.js'
 import { asEvidence, format } from './evidence.js'
+import { lazyDocumentService } from '../lazy-document.service.js'
 
 /**
  * How much damage a tool can do, which decides what has to be asked first.
@@ -120,9 +121,31 @@ function parseInstant(value: unknown): Date | null {
 
 const tools: Tool[] = [
   {
+    name: 'read_stored_pdf',
+    description:
+      'Process one stored PDF only after the student explicitly asks to read, search, explain, summarise, quiz, or make study material from that file. Call this before search_archive or a study tool when the named PDF has not been read yet. Never call it merely because a PDF arrived.',
+    tier: 'read',
+    parameters: z.object({
+      file: z.string().min(1).describe('The filename or distinctive part of the filename.'),
+      course: z
+        .string()
+        .nullable()
+        .describe('Course code the student associated with it, or null.'),
+    }),
+    async run(args, { user }) {
+      const named = args['course'] ? await resolveCourse(String(args['course']), user) : null
+      const resource = await lazyDocumentService.process(user, String(args['file'] ?? ''), named)
+      if (!resource) return 'No accessible stored PDF matches that name. Ask which file they mean.'
+      if (resource.processingError) {
+        return `Stored *${resource.fileName}*, but its contents could not be read. Offer to send the original.`
+      }
+      return `Processed *${resource.fileName}*. Now use search_archive or the requested study tool to answer from it.`
+    },
+  },
+  {
     name: 'search_archive',
     description:
-      "Search everything said in the student's groups and every file shared there — messages, voice note transcripts, PDF contents. Use for any question about what was said, what Peermate knows, a named person, what a document contains, or what happened. The search covers all verified groups even when old or missing course metadata is wrong. Returns quoted evidence with provenance; cite it.",
+      "Search everything said in the student's groups and files the student has explicitly asked Peermate to process — messages, voice note transcripts, and requested PDF contents. Use for any question about what was said, what Peermate knows, a named person, what a processed document contains, or what happened. For a newly stored PDF, call read_stored_pdf first. Returns quoted evidence with provenance; cite it.",
     tier: 'read',
     parameters: z.object({
       question: z.string().describe('What to look for, rewritten as a standalone question.'),
@@ -363,6 +386,25 @@ const tools: Tool[] = [
   },
 
   {
+    name: 'get_all_course_info',
+    description:
+      'One consolidated account overview across every course the student tracks. Use for broad questions such as "what information do you have about my courses?" Never call get_course_info repeatedly for this purpose.',
+    tier: 'read',
+    parameters: z.object({}),
+    async run(_args, { user }) {
+      if (user.courseKeys.length === 0) return 'The student is not tracking any courses yet.'
+      const summaries = await Promise.all(
+        user.courseKeys.map(async (key) => ({ key, text: await courseService.rundown(user, key) })),
+      )
+      return `<course_overview status="complete" count="${summaries.length}">\n${summaries
+        .map(({ text }) => text)
+        .join(
+          '\n\n',
+        )}\n</course_overview>\nThis is a complete lookup of every tracked course. Summarise facts compactly; mention follow-up options only once.`
+    },
+  },
+
+  {
     name: 'explain_peermate',
     description:
       'How Peermate itself works, or what it is currently set up to do: approving a group, adding or dropping courses, the morning digest, pausing, quiet hours, which groups it is reading. Use this instead of answering from your own knowledge — the answer depends on their account and on how this deployment is configured.',
@@ -478,17 +520,75 @@ const tools: Tool[] = [
     tier: 'read',
     parameters: z.object({}),
     async run(_args, { user }) {
-      const groups = await groupRepository.forStudent(user.groupJids)
+      const groups = await membershipService.liveSharedGroups(user)
       if (groups.length === 0) return 'Peermate has no verified shared group with this user.'
 
       return `<shared_groups>\n${groups
         .map(
           (group, index) =>
-            `${index + 1}. ${group.name ?? 'Unnamed group'} | purpose: ${group.purpose ?? 'not provided'}`,
+            `${index + 1}. ${group.name ?? 'Unnamed group'} | members: ${group.participantCount ?? 'unknown'} | courses: ${(group.courseKeys ?? []).map(courseDisplay).join(', ') || 'not provided'} | purpose: ${group.purpose ?? 'not provided'}`,
         )
         .join(
           '\n',
         )}\n</shared_groups>\nAsk which of these groups are relevant to their courses if its purpose is not provided.`
+    },
+  },
+
+  {
+    name: 'list_group_members',
+    description:
+      "List the live members or find one member's visible phone number in a WhatsApp group the student currently belongs to. Never use across groups or for a group they have left.",
+    tier: 'read',
+    parameters: z.object({
+      group: z.string().nullable().describe('Group name, or null when they share only one.'),
+      member: z
+        .string()
+        .nullable()
+        .describe('Display name or phone digits to find, or null to list.'),
+    }),
+    async run(args, { user }) {
+      const group = await resolveGroup(args['group'] as string, user)
+      if (!group) return 'That is not one of their verified groups.'
+      const members = await membershipService.members(user, group)
+      if (!members)
+        return 'Current membership could not be verified, so no participant details were disclosed.'
+
+      const recent = await messageRepository.accessible(user.phone, [group.chatJid], { limit: 50 })
+      const names = new Map<string, string>()
+      for (const message of recent) {
+        if (!message.fromGroup || message.chatJid !== group.chatJid || !message.senderJid) continue
+        if (message.senderName) names.set(message.senderJid, message.senderName)
+      }
+      const rows = members.map((member) => ({
+        ...member,
+        name:
+          names.get(member.jid) ??
+          (member.lid ? names.get(member.lid) : undefined) ??
+          member.name ??
+          'Unknown member',
+      }))
+      const wanted = String(args['member'] ?? '')
+        .trim()
+        .toLowerCase()
+      const selected = wanted
+        ? rows.filter(
+            (member) =>
+              member.name.toLowerCase().includes(wanted) ||
+              member.phoneNumber?.includes(wanted.replace(/\D/g, '')),
+          )
+        : rows
+      if (selected.length === 0) return 'No visible member matches that name or number.'
+      if (wanted && selected.length > 1)
+        return `More than one member matches. Ask which one they mean:\n${selected.map((member) => `- ${member.name}${member.phoneNumber ? ` — +${member.phoneNumber}` : ' — number hidden by WhatsApp'}`).join('\n')}`
+
+      return `<group_members group="${group.name ?? 'Unnamed group'}" current_membership="verified">\n${selected
+        .map(
+          (member, index) =>
+            `${index + 1}. ${member.name}${member.phoneNumber ? ` | +${member.phoneNumber}` : ' | phone number not exposed'}${member.admin ? ` | WhatsApp ${member.admin}` : ''}`,
+        )
+        .join(
+          '\n',
+        )}\n</group_members>\nThese details came from this group's live participant list. Do not combine them with another group or message anyone proactively.`
     },
   },
 
@@ -589,7 +689,26 @@ const tools: Tool[] = [
       const named = String(args['name'] ?? '').trim()
       if (!named) return 'No name was given. Ask who they mean.'
 
-      await groupService.trust(group.chatJid, named, args['role'] as 'lecturer' | 'rep')
+      const candidates = (
+        await messageRepository.accessible(user.phone, [group.chatJid], {
+          sender: named,
+          limit: 50,
+        })
+      ).filter(
+        (message) =>
+          message.fromGroup && message.chatJid === group.chatJid && Boolean(message.senderJid),
+      )
+      const identities = [...new Set(candidates.map((message) => message.senderJid!))]
+      if (identities.length > 1) {
+        return `More than one sender matches ${named}. Ask for their visible phone number or exact WhatsApp display name before assigning authority.`
+      }
+
+      await groupService.trust(
+        group.chatJid,
+        named,
+        args['role'] as 'lecturer' | 'rep',
+        identities[0] ?? null,
+      )
       return `Recorded ${named} as the ${args['role'] === 'rep' ? 'class rep' : 'lecturer'} in ${group.name ?? 'that group'}. Their word now outweighs a classmate's on the same thing.`
     },
   },

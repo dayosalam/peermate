@@ -20,5 +20,8 @@ export const ResourceSchema = z.object({
   postedBy: z.string().nullable(),
   postedAt: z.date(),
   sourceMessageId: z.string(),
+  /** Null until a student explicitly asks Peermate to inspect this file. */
+  processedAt: z.date().nullable().optional(),
+  processingError: z.string().nullable().optional(),
 })
 export type Resource = z.infer<typeof ResourceSchema>

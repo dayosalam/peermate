@@ -1,6 +1,6 @@
 import { downloadMediaMessage, type WAMessage } from '@whiskeysockets/baileys'
 import { config } from '../config.js'
-import { logger } from '../core/logger.js'
+import { devPreview, logger } from '../core/logger.js'
 import { getMedia, putMedia } from '../db/minio.js'
 import type { Message, ProcessingStatus } from '../models/index.js'
 import {
@@ -46,6 +46,21 @@ async function handle(raw: WAMessage): Promise<void> {
 
   const log = logger.child({ waMessageId: message.waMessageId, type: message.type })
 
+  if (!config.isProduction) {
+    log.info(
+      {
+        direction: 'inbound',
+        chat: message.fromGroup ? 'group' : 'dm',
+        chatJid: message.chatJid,
+        sender: message.senderPhone,
+        text: devPreview(message.text),
+        caption: devPreview(message.caption),
+        fileName: message.fileName,
+      },
+      'DEV message received',
+    )
+  }
+
   try {
     if (MEDIA_TYPES.has(message.type)) {
       message.mediaKey = await storeMedia(raw, message)
@@ -56,7 +71,7 @@ async function handle(raw: WAMessage): Promise<void> {
     // caption was answering a question it could not see.
     //
     // A DM must survive that read failing. Transcription throwing used to take the
-    // whole handler to the catch below, so a voice note Whisper could not hear got
+    // whole handler to the catch below, so a voice note the ASR service could not hear got
     // no reply at all — indistinguishable, from the student's side, from Peermate
     // being down. They get told it could not be made out instead.
     if (message.fromGroup) {
@@ -65,6 +80,17 @@ async function handle(raw: WAMessage): Promise<void> {
       await readMedia(message, log).catch((error) => {
         log.warn({ err: error }, 'could not read media on a dm, answering without it')
       })
+    }
+
+    if (!config.isProduction && (message.transcript || message.caption || message.mediaKey)) {
+      log.info(
+        {
+          mediaKey: message.mediaKey,
+          transcript: devPreview(message.transcript),
+          caption: devPreview(message.caption),
+        },
+        'DEV media prepared',
+      )
     }
 
     // A DM is a student talking to Peermate; a group message is source material.
@@ -96,7 +122,31 @@ async function handle(raw: WAMessage): Promise<void> {
  */
 async function rememberPrivate(message: Message, log: typeof logger): Promise<void> {
   if (message.type === 'document') {
-    await readDocument(message, null, log)
+    const owner = message.senderPhone ? await userRepository.findByPhone(message.senderPhone) : null
+    // During onboarding, processing the timetable is explicitly requested. Make any
+    // readable PDF or Word document available to the same timetable parser used for
+    // images and pasted text; ordinary PDFs remain lazy everywhere else.
+    if (
+      owner?.onboardingState === 'awaiting_timetable' &&
+      message.mediaKey &&
+      documentReader.supports(message.mimeType)
+    ) {
+      const bytes = await getMedia(message.mediaKey)
+      const read = await documentReader.read(
+        bytes,
+        message.mimeType,
+        message.fileName ?? message.waMessageId,
+      )
+      if (read?.text) {
+        message.transcript = read.text
+        await messageRepository.setTranscript(message.waMessageId, read.text)
+        log.info({ pages: read.pages }, 'onboarding timetable document read')
+      }
+    }
+
+    if (message.mimeType === 'application/pdf') {
+      await documentService.fileLazy(message)
+    } else await readDocument(message, null, log)
     return
   }
 
@@ -169,7 +219,8 @@ async function readMedia(message: Message, log: typeof logger): Promise<void> {
 /** Embed for retrieval, then classify and extract. Returns the terminal status. */
 async function understand(message: Message, log: typeof logger): Promise<ProcessingStatus> {
   // Approval was checked before anything was stored, so the group exists by now.
-  const group = await groupRepository.findByJid(message.chatJid)
+  let group = await groupRepository.findByJid(message.chatJid)
+  group = await groupService.observeSender(message.chatJid, message.senderJid, message.senderName)
   // A group can cover a faculty, a level, several courses, or none. Its old single
   // default course is retained only as legacy display metadata; feeding it into the
   // extractor caused explicit text such as "WEE 511" to be filed as RING400.
@@ -179,8 +230,11 @@ async function understand(message: Message, log: typeof logger): Promise<Process
 
   // A document is filed first — that half never depended on being able to read it.
   if (message.type === 'document') {
-    const resource = await documentService.file(message, preceding, defaultCourse)
-    await readDocument(message, resource?.courseKey ?? null, log)
+    const lazy = message.mimeType === 'application/pdf'
+    const resource = lazy
+      ? await documentService.fileLazy(message)
+      : await documentService.file(message, preceding, defaultCourse)
+    if (!lazy) await readDocument(message, resource?.courseKey ?? null, log)
     // Batched, so a five-file upload is one heads-up rather than five.
     if (resource) resourceAlertService.queue(resource, message.senderName)
   }
@@ -335,7 +389,7 @@ const MAX_AUTO_ATTEMPTS = 3
 export async function recoverUnfinished(): Promise<void> {
   await reprocess(await messageRepository.unfinished(), 'interrupted by a restart')
 
-  // Most failures are transient — a Whisper timeout, a rate limit, a MinIO blip —
+  // Most failures are transient — an ASR timeout, a rate limit, a MinIO blip —
   // and the announcement is lost for good if nobody retries. Capped, so a genuinely
   // broken message is attempted a few times and then left for the operator.
   await reprocess(
@@ -355,7 +409,7 @@ export async function recoverUnfinished(): Promise<void> {
 
 /**
  * Re-runs messages whose pipeline threw. Exposed to the operator as *retry failed*,
- * because a transient Whisper or network error would otherwise lose the announcement
+ * because a transient ASR or network error would otherwise lose the announcement
  * permanently — the stored record blocks WhatsApp's own re-delivery.
  */
 export async function retryFailed(): Promise<number> {

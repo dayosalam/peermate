@@ -10,7 +10,13 @@ import { deliveryService } from './services/delivery.service.js'
 import { resourceAlertService } from './services/resource-alert.service.js'
 import { groupService } from './services/group.service.js'
 import { PROGRESS_TICK_MS, renderProgressService } from './services/render-progress.service.js'
-import { connectWhatsApp, onGroupJoin, onGroupLeave, onMessage } from './whatsapp/socket.js'
+import {
+  connectWhatsApp,
+  onGroupJoin,
+  onGroupLeave,
+  onMessage,
+  whenOpen,
+} from './whatsapp/socket.js'
 import { backfillPrivateMemory, ingestQueue, recoverUnfinished } from './workers/ingest.worker.js'
 import { backfillTenancy } from './scripts/backfill-tenancy.js'
 import { deletionService } from './services/deletion.service.js'
@@ -74,9 +80,20 @@ async function main(): Promise<void> {
     void handle.catch((error) => logger.error({ err: error, chatJid }, 'group departure failed'))
   })
   const sock = await connectWhatsApp()
-  void groupService
-    .retryDisclosures()
-    .catch((error) => logger.error({ err: error }, 'group disclosure recovery failed'))
+  const whatsappReady = await whenOpen(20_000)
+  if (whatsappReady) {
+    try {
+      const count = await groupService.syncLiveGroups()
+      logger.info({ count }, 'live WhatsApp groups reconciled')
+    } catch (error) {
+      logger.error({ err: error }, 'live group reconciliation failed')
+    }
+    void groupService
+      .retryDisclosures()
+      .catch((error) => logger.error({ err: error }, 'group disclosure recovery failed'))
+  } else {
+    logger.warn('WhatsApp did not open during startup; skipped live group reconciliation')
+  }
   // Recorded after the socket is up, because the number is only known once WhatsApp
   // says who it logged in as. An operator reading this collection needs to see which
   // number is holding which session before they can safely restart anything.

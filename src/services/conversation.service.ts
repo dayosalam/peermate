@@ -20,15 +20,6 @@ import { formatDateTime } from '../utils/dates.js'
 /** Older than this, a pronoun refers to nothing anyone remembers. */
 const STALE_MS = 45 * 60 * 1000
 
-/** Enough alerts that a student scrolling back a few days can still reply to one. */
-const ALERTS_KEPT = 50
-
-/** Twenty exchanges, both halves of each. Outlives STALE_MS — see the model. */
-const TURNS_KEPT = 40
-
-/** Enough to recognise what was said; short enough that forty of them fit a prompt. */
-const TURN_MAX_CHARS = 500
-
 /**
  * The last thing the student and Peermate were talking about.
  *
@@ -82,10 +73,10 @@ export class ConversationService {
     const existing = (await conversationRepository.find(phone))?.turns ?? []
     const turn: Turn = {
       role,
-      text: said.length > TURN_MAX_CHARS ? `${said.slice(0, TURN_MAX_CHARS)}…` : said,
+      text: said,
       at: new Date(),
     }
-    await this.merge(phone, { turns: [...existing, turn].slice(-TURNS_KEPT) })
+    await this.merge(phone, { turns: [...existing, turn] })
   }
 
   /**
@@ -205,7 +196,7 @@ export class ConversationService {
   async rememberAlert(phone: string, waMessageId: string, eventId: string): Promise<void> {
     const existing = (await conversationRepository.find(phone))?.alerts ?? []
     await this.merge(phone, {
-      alerts: [...existing, { waMessageId, eventId }].slice(-ALERTS_KEPT),
+      alerts: [...existing, { waMessageId, eventId }],
     })
   }
 

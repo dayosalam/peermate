@@ -6,6 +6,7 @@ let users: User[] = []
 const sent: Array<{ jid: string; text: string }> = []
 let proposals: Array<{ phone: string; proposal: unknown }> = []
 let failJid: string | null = null
+let currentMembers = new Set<string>()
 
 vi.mock('../src/repositories/index.js', () => ({
   groupRepository: {
@@ -49,10 +50,32 @@ vi.mock('../src/repositories/index.js', () => ({
           : user,
       )
     }),
+    onShard: vi.fn(async () => users),
+    claimGroupNotice: vi.fn(async (phone: string, chatJid: string) => {
+      const user = users.find((one) => one.phone === phone)
+      if (!user || user.notifiedGroupJids?.includes(chatJid)) return false
+      user.notifiedGroupJids = [...(user.notifiedGroupJids ?? []), chatJid]
+      return true
+    }),
+    releaseGroupNotice: vi.fn(async (phone: string, chatJid: string) => {
+      const user = users.find((one) => one.phone === phone)
+      if (user)
+        user.notifiedGroupJids = (user.notifiedGroupJids ?? []).filter((id) => id !== chatJid)
+    }),
     dropGroupForAll: vi.fn(async () => 0),
     dropGroupFor: vi.fn(async () => 0),
   },
   pendingRepository: { openForGroup: vi.fn(async () => []), resolve: vi.fn() },
+}))
+
+vi.mock('../src/services/membership.service.js', () => ({
+  membershipService: {
+    isCurrentMember: vi.fn(async (user: User) => currentMembers.has(user.phone)),
+  },
+}))
+
+vi.mock('../src/whatsapp/socket.js', () => ({
+  participatingGroups: vi.fn(async () => []),
 }))
 
 vi.mock('../src/services/notifier.service.js', () => ({
@@ -121,6 +144,7 @@ beforeEach(() => {
   sent.length = 0
   proposals = []
   failJid = null
+  currentMembers = new Set([ADDER])
 })
 
 describe('who can switch a group on', () => {
@@ -194,7 +218,7 @@ describe('who gets notified when Peermate is added', () => {
 
     expect(sent).toHaveLength(1)
     expect(sent[0]!.jid).toBe(ADDER_JID)
-    expect(sent[0]!.text).toMatch(/connected/i)
+    expect(sent[0]!.text).toMatch(/been added/i)
     expect(users[0]!.groupJids).toContain('g1@g.us')
   })
 
@@ -220,6 +244,7 @@ describe('who gets notified when Peermate is added', () => {
    */
   it('does not open a private chat with an unknown adder', async () => {
     users = []
+    currentMembers.clear()
     await groupService.register('g1@g.us', { subject: 'CVE 575 class', addedBy: ADDER_JID })
     expect(sent).toHaveLength(0)
     expect(stored[0]!.status).toBe('approved')
@@ -228,9 +253,29 @@ describe('who gets notified when Peermate is added', () => {
   // Who gets offered it afterwards is membership's decision, not this service's —
   // see tests/membership.test.ts.
 
-  it('stays silent when nobody was recorded as the adder', async () => {
+  it('stays silent when no registered student is a confirmed member', async () => {
+    currentMembers.clear()
     await groupService.register('g1@g.us', { subject: 'CVE 575 class' })
     expect(sent).toHaveLength(0)
+  })
+
+  it('notifies every registered confirmed member once, whoever added Peermate', async () => {
+    currentMembers = new Set([ADDER, OTHER])
+    await groupService.register('g1@g.us', {
+      subject: 'Engineering 400 Level',
+      addedBy: ADDER_JID,
+      participantCount: 120,
+    })
+    expect(sent.map((message) => message.jid).sort()).toEqual(
+      [`${ADDER}@s.whatsapp.net`, `${OTHER}@s.whatsapp.net`].sort(),
+    )
+    expect(sent[0]!.text).toMatch(/120 members/i)
+
+    await groupService.register('g1@g.us', {
+      subject: 'Engineering 400 Level',
+      participantCount: 120,
+    })
+    expect(sent).toHaveLength(2)
   })
 
   it('starts learning immediately', async () => {

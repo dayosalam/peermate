@@ -23,14 +23,14 @@ Undergraduates in Nigerian universities. WhatsApp is the primary and often only 
 
 ## 4. What Peermate does
 
-**Useful immediately, groups optional.** A user can privately send or forward anything without completing a form, choosing courses or adding Peermate to a group. Groups are optional connected sources. When added to one, Peermate posts one disclosure, begins learning from that point forward and privately confirms with the person who added it.
+**Student setup first.** Peermate asks for the student's name, reads and confirms their timetable, asks for the preferred class-reminder lead time, then guides them through adding shared class and general groups. It never posts in those groups. Every already-registered student whose current membership is confirmed receives one private connection notice.
 
 | Stage          | Behaviour                                                                                                                                                                                                                                                                                                       |
 | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Ingest**     | Receives every message in every joined group — text, voice notes, images, PDFs — over a Baileys socket linked to the bot number.                                                                                                                                                                                |
-| **Understand** | Transcribes voice notes (Whisper), reads images (vision), and classifies each message as announcement / question / noise in one call.                                                                                                                                                                           |
+| **Understand** | Transcribes voice notes through N-ATLaS ASR on Modal, reads images (vision), and classifies each message as announcement / question / noise in one call.                                                                                                                                                        |
 | **Extract**    | For announcements: course, event type, date, time, venue — plus source message ID, sender, timestamp.                                                                                                                                                                                                           |
-| **File**       | Every document that lands in a group is tagged to a course and type (slides / past questions / assignment / textbook), stored, and — for PDFs, `.docx` and scans — read, so its contents can be questioned.                                                                                                     |
+| **File**       | Every PDF is stored with its filename and provenance but is not opened, parsed, OCR'd or embedded until a student explicitly asks Peermate to use it.                                                                                                                                                           |
 | **Act**        | Answers from the user's private and verified group memory, creates preference-controlled reminders, sends original sources back, and provides cited alerts and digests.                                                                                                                                         |
 | **Converse**   | Holds a short memory of the last exchange, so the follow-ups people actually send — _"where is it?"_, _"who said that?"_, _"send the second one"_ — resolve against what was just discussed rather than starting cold. Keeps the running thread for longer, so _"you said Thursday"_ has something to refer to. |
 | **Prepare**    | Builds a practice set for a course out of the files people shared — what the material covers, then questions in the style the lecturer sets — and quizzes the student one question at a time, marking each answer.                                                                                              |
@@ -66,7 +66,7 @@ Three moments, all in the video:
 3. **Voice note transcription** ← the differentiator, protect its time
 4. Classification + structured extraction, one call, tagged union
 5. Mongo persistence + MinIO media + **persisted Baileys auth state** (survives a restart without re-pairing)
-6. Immediate first-contact activation; optional profile, course and notification preferences are learned progressively
+6. Student onboarding: name → timetable confirmation → reminder preference → shared-group setup
 7. **Outbound DMs** — instant announcement alert + daily digest
 8. Cited Q&A over the store
 
@@ -83,9 +83,7 @@ Items 9–12 depend on the spine. If the spine is not solid, they are worth noth
 
 Ongoing group conversation by the bot (beyond the one-time disclosure) · `.ics` files · calendar API · web frontend
 
-**On documents: tag first, then read.** Filename plus the surrounding messages identify the course and type in one LLM call. That tagging is what makes the library work, and it happens whether or not the file can be opened.
-
-Reading the contents is a second, independent pass — added after the original "tag, don't read" scope proved too narrow, because students ask questions whose answers are inside the slides rather than in anything anyone typed in the chat. PDFs are read from their text layer, `.docx` through its XML. A scan with no text layer is read by the vision model instead, and anything read that way is marked, so the answer can say it came from a photograph and may be imperfect.
+**On PDFs: store first, read only on request.** Ingestion stores the original bytes, filename, sender, group and timestamp. It does not parse, OCR, embed, summarise or classify PDF contents. When an authorised student explicitly asks to read, search, explain, quiz or generate study material from a named PDF, Peermate processes that file and keeps the resulting searchable representation.
 
 Because reading is a second pass, it cannot cost anything. A corrupt file, an unsupported format, a scan the model cannot make out — each is still filed, stored and sent on request, and each still gets one searchable record saying Peermate holds the file but cannot read inside it. That record matters: without it, asking about a scanned past-paper returns nothing and Peermate claims never to have heard of a file it is holding.
 
@@ -93,16 +91,16 @@ Because reading is a second pass, it cannot cost anything. A corrupt file, an un
 
 Peermate reads the messages of everyone in a connected group, including people who never registered with it. Product use therefore requires visible notice in the room and a documented retention policy:
 
-- **It discloses itself once.** On joining, Peermate tells the room that new messages and media will be retained for member retrieval. The room notice and private confirmation have independent durable checkpoints, so retrying one never repeats the other. It does not otherwise participate unless explicitly addressed by a supported group interaction.
+- **It never posts in a group.** Connection notices, setup questions, answers and alerts are private DMs to students who previously registered and whose current group membership is confirmed.
 - **Group learning begins immediately and requires no course code.** Course, project and topic labels are optional metadata inferred when useful; they never gate ingestion.
 - **Retrieval is authorization-scoped.** A user can access private material they sent and group material from groups whose membership was verified for them. Leaving preserves that already authorized archive; explicitly forgetting the group removes access. Knowing a group name or course code grants nothing.
 - **Original sources are retained with provenance.** Searchable text never replaces the underlying message, file, image or voice note. Answers can be traced to and recover the original source.
 - **The user controls proactive reminders, group modes and deletion.** Dates are extracted automatically; delivery follows the user's reminder preference. Each group can be fully active, deadlines-only, or paused while remaining searchable. A user can forget one group, or delete their account and private messages, embeddings, collections and stored media without deleting shared group history needed by other members. Cross-store account deletion is checkpointed and resumes after a process restart.
 - **The bot number must be a dedicated account.** A companion device sees everything that account sees — its personal DMs and every unrelated group, not just the course groups. Peermate is linked to a fresh SIM used for nothing else. Never link it to a personal WhatsApp account.
-- **OpenAI processes message content.** There is no third-party message broker in the path; the socket is direct. Content leaves the host only for transcription, vision and extraction. Data is not sold or intentionally surfaced outside the staged demo users.
+- **Configured AI providers process message content.** There is no third-party message broker in the path; the socket is direct. Audio leaves the host for N-ATLaS ASR on Modal; relevant text/images leave it for configured OpenAI features. Data is not sold or intentionally surfaced outside the staged demo users.
 - **A group admin can remove the number at any time**, which ends ingestion for that group immediately.
-- **Retention is explicit.** Private sources remain until the user deletes their account. Conversation transcripts expire after 30 days. Shared group sources remain while the product operator's published group-retention window applies, because deleting one member cannot invalidate sources used by others. The operator must choose and publish that window before onboarding a real group.
-- **Processors are disclosed.** OpenAI receives the content needed for transcription, vision, extraction and answers. Exa receives research topics, not the private archive. Video processors must be added to this disclosure before video generation is enabled.
+- **Retention is explicit.** Collected messages, conversation history and original media have no age-based expiry or trimming. They remain until an authorised forget/delete operation or a deliberate version-retirement process removes them.
+- **Processors are disclosed.** Modal/N-ATLaS receives voice-note audio for transcription. OpenAI receives the content needed for vision, extraction, embeddings, answers and TTS. Exa receives research topics, not the private archive. Video processors must be added to this disclosure before video generation is enabled.
 
 Before a real group is onboarded, its members must receive the room disclosure and the operator must publish contact, retention and deletion terms. Access control and private deletion are enforced by the product; jurisdiction-specific consent language and institutional approval still require legal review rather than being inferred by the software.
 
@@ -118,7 +116,7 @@ WhatsApp groups
       ▼
   ingest worker
       ├─ persist → messages (raw, append-only, full provenance)
-      ├─ media?  → downloadMediaMessage → MinIO → Whisper (audio) / vision (image)
+      ├─ media?  → downloadMediaMessage → MinIO → N-ATLaS ASR (audio) / vision (image)
       ├─ update  → transcript/OCR result + processing status
       ├─ embed   → Chroma, one document per message
       └─ extract → one LLM call, tagged-union schema
@@ -134,7 +132,7 @@ WhatsApp groups
                       LLM resolves supersession and conflicts from timestamps
 ```
 
-**Stack.** One Node process, TypeScript. Baileys (`@whiskeysockets/baileys`) for WhatsApp, Express for the small HTTP surface that remains (health, admin), the official `mongodb` driver, `chromadb` for vectors, the `minio` SDK for media, the `openai` SDK for Whisper, vision and extraction, and `node-cron` for the 07:00 jobs. Extraction uses OpenAI structured outputs against a zod schema, so the tagged union below is enforced at the API rather than by parsing a reply.
+**Stack.** One Node bot process plus a separate render worker, TypeScript. Baileys (`@whiskeysockets/baileys`) for WhatsApp, Express for the small HTTP surface that remains (health, admin), the official `mongodb` driver, `chromadb` for vectors, the `minio` SDK for media, authenticated N-ATLaS ASR on Modal for voice notes, the `openai` SDK for vision and extraction, and `node-cron` for scheduled jobs. Extraction uses OpenAI structured outputs against a zod schema, so the tagged union below is enforced at the API rather than by parsing a reply.
 
 There is no Node backend in this workspace to copy from — [unidash-api](../unidash-api/) and [unimart-api](../unimart-api/) are Go, [uniwrite-api](../uniwrite-api/) is Python — so what carries over is the layering, not the stack: `src/whatsapp`, `src/services`, `src/repositories`, `src/workers`, `src/db`. The point of that layering was that outbound has exactly one home and storage has exactly one home. That survives the language change, and the split-the-directions escape hatch below depends on it.
 
@@ -153,7 +151,7 @@ The tradeoff is that the socket and the worker now share a fate. An unhandled re
 | `extractions`        | every extracted event, **append-only**         | `source_message_id`, `event_id`, `course`, `event_type`, `date`, `time`, `venue`, `authority`, `corroborated_by`, `extracted_at`                                        |
 | `resources`          | the course library                             | `course`, `doc_type`, `filename`, `media_key`, `posted_by`, `posted_at`, `source_message_id`                                                                            |
 | `notifications`      | delivery log                                   | `user_phone`, `extraction_id`, `notification_type`, `status`, `sent_at`                                                                                                 |
-| `conversations`      | the thread, per student                        | `phone`, `course_key`, `event_id`, `source_message_id`, `files[]`, `last_answer`, `turns[]`, `quiz`, `pending_action`, `updated_at` (30d TTL)                           |
+| `conversations`      | the retained thread, per student               | `phone`, `course_key`, `event_id`, `source_message_id`, `files[]`, `last_answer`, `turns[]`, `quiz`, `pending_action`, `updated_at`                                     |
 | `memory_collections` | named lists of source references               | `collection_id`, `user_phone`, `name`, `source_message_ids[]`, `created_at`, `updated_at`                                                                               |
 | `deletion_jobs`      | resumable private-data deletion                | `phone`, `media_keys[]`, `completed_steps[]`, `status`, `attempts`, `last_error`, `updated_at`                                                                          |
 | `schedules`          | a student's own timetable, **private to them** | `phone`, `course_key`, `kind`, `date` _or_ `weekday`, `time`, `venue`, `source_message_id`                                                                              |
@@ -273,8 +271,8 @@ message starts from nothing.
   with an explicit rule: use it to understand what is being referred to, never to
   support a claim about a course. An answer whose only backing is Peermate's own
   earlier reply is a citation of itself.
-- **Turns are clipped and capped.** 500 characters each, forty of them, oldest dropped
-  first. A digest runs to hundreds of words and would otherwise crowd out the question.
+- **Stored turns are not clipped or capped.** Only the temporary prompt view selects
+  and clips recent turns so model context stays bounded; the retained conversation remains complete.
 
 ### Preparing for a test
 
@@ -422,11 +420,9 @@ discarded a fully read timetable, leaving the student enrolled in the right cour
 with no schedule and nothing to say anything had been lost. A read that produced rows
 is a timetable; only one that produced none is a course list.
 
-**Registration is when a timetable is most likely to arrive.** Onboarding reads the
-course codes off the photo and stops there, so the grid was discarded at exactly that
-moment and "when is my next class?" then answered that it had never seen one. The read
-is held instead, and offered once registration is finished — not straight away, because
-onboarding still has its own questions to ask and two open questions collide.
+**The timetable is the centre of onboarding.** Peermate reads its courses and rows,
+shows the complete result for confirmation, stores it only after approval, and then
+asks how long before each class the student wants a reminder.
 
 **A photographed timetable enrols the courses on it.** It is the most authoritative
 statement of what a student takes, and storing keeps only rows for courses they watch —
@@ -555,8 +551,9 @@ No live pitch. Judging is global and video-based, scored 1–5 on four criteria 
 ## Registration
 
 1. Amina messages the Peermate number: _"hi"_.
-2. Peermate asks which courses she takes. She replies _"CSC 301, STA 202"_.
-3. She is registered. She immediately has access to everything Peermate has already stored for those courses — past announcements and the file library.
+2. Peermate asks her name, then asks for a timetable photo. It extracts the courses and class times and waits for her confirmation.
+3. Peermate asks how long before class to remind her, then tells her to add it to relevant course and general groups.
+4. As each group is detected from live WhatsApp state, Peermate privately reports its name and member count to every registered confirmed member. Amina asks for their shared-group list and explains which courses each room supplies.
 
 ## Primary flow — the announcement she'd have missed
 

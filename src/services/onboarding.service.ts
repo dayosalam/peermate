@@ -9,9 +9,21 @@ import { membershipService } from './membership.service.js'
 
 const GREETING = `Hi! I'm Peermate 👋
 
-I can remember messages, files and voice notes, organize what matters, answer from what you've shared, and remind you about it later.
+I'm your private student assistant. I remember what your class groups share, help you find it later, and keep you ahead of classes and deadlines.
 
-Send or forward me anything. Courses and groups are optional — you can start right here.`
+First, what should I call you?`
+
+const ASK_TIMETABLE = `Send me your current timetable however you have it — a photo, PDF, document, pasted text, or typed schedule. I'll extract your courses and class times, then show you what I read before saving anything.`
+
+const ASK_REMINDER = `When should I remind you before each class?
+
+For example: *30 minutes before*, *1 hour before*, or *no class reminders*.`
+
+const SET_UP_GROUPS = (name: string | null): string => `You're set${name ? `, ${name}` : ''} ✅
+
+Now add Peermate to the class, course and general groups you want me to remember. I will stay silent inside them and notify you here when I detect each shared group.
+
+When you're finished, ask *"which groups are we in together?"* Then tell me which courses each group covers. One course can use several groups, and a general group can cover several courses.`
 
 const ASK_COURSES = (name: string): string => `Nice to meet you, ${name} 🙌
 
@@ -92,20 +104,6 @@ export class OnboardingService {
 
     if (!user) return this.start(message, phone, text)
 
-    // Older accounts may still be parked in the prototype's mandatory onboarding.
-    // Registration is no longer a gate: migrate them on their next message and let
-    // DmService handle what they actually came to ask.
-    if (user.onboardingState !== 'registered') {
-      await userRepository.upsert({
-        ...user,
-        displayName: user.displayName ?? this.readName(user.name ?? ''),
-        onboardingState: 'registered',
-        registeredAt: user.registeredAt ?? new Date(),
-        automaticReminders: user.automaticReminders ?? true,
-      })
-      return GREETING
-    }
-
     // Only while onboarding. A registered student typing "cancel" means cancel
     // whatever we were just doing — reading it as "start over" would wipe their
     // name, their courses and their settings without ever asking.
@@ -127,6 +125,16 @@ export class OnboardingService {
     switch (user.onboardingState) {
       case 'awaiting_name':
         return this.takeName(user, text)
+      case 'awaiting_timetable':
+        // Let the timetable layer inspect every supported form, including pasted or
+        // manually typed rows. It will ask again if the content is not a timetable.
+        return null
+      case 'awaiting_timetable_confirmation':
+        // `yes` and `no` belong to DmService's deterministic confirmation handler.
+        // Returning the original prompt here trapped users in an onboarding loop.
+        return null
+      case 'awaiting_reminder':
+        return this.takeReminder(user, text)
       case 'awaiting_courses':
         return this.takeCourses(user, text)
       case 'awaiting_digest':
@@ -142,13 +150,13 @@ export class OnboardingService {
       jid: message.chatJid,
       lid: null,
       name: message.senderName,
-      displayName: this.readName(message.senderName ?? ''),
-      courseKeys: looksLikeQuestion(text) ? [] : parseCourseList(text),
+      displayName: null,
+      courseKeys: [],
       groupJids: [],
       // They wrote to this number, so this is the number that answers them.
       shardId: config.whatsapp.shardId,
-      onboardingState: 'registered',
-      registeredAt: new Date(),
+      onboardingState: 'awaiting_name',
+      registeredAt: null,
       lastDigestAt: null,
       digestFormat: 'text',
       digestHour: 7,
@@ -163,7 +171,7 @@ export class OnboardingService {
     }
 
     await userRepository.upsert(fresh)
-    logger.info({ phone }, 'new user registered without a setup gate')
+    logger.info({ phone }, 'new user onboarding started')
     return GREETING
   }
 
@@ -212,9 +220,9 @@ export class OnboardingService {
       await userRepository.upsert({
         ...user,
         displayName: fallback,
-        onboardingState: 'awaiting_courses',
+        onboardingState: 'awaiting_timetable',
       })
-      return ASK_COURSES(fallback ?? 'there')
+      return `${ASK_TIMETABLE}`
     }
 
     if (SALUTATION.test(text.trim())) {
@@ -226,9 +234,49 @@ export class OnboardingService {
       return 'Sorry, what should I call you? Just a name is fine — like *Amina* or *Chidi*.'
     }
 
-    await userRepository.upsert({ ...user, displayName, onboardingState: 'awaiting_courses' })
+    await userRepository.upsert({ ...user, displayName, onboardingState: 'awaiting_timetable' })
     logger.info({ phone: user.phone, displayName }, 'name taken')
-    return ASK_COURSES(displayName)
+    return `${ASK_TIMETABLE}`
+  }
+
+  async timetableReady(user: User, courseKeys: string[]): Promise<void> {
+    await userRepository.upsert({
+      ...user,
+      courseKeys: [...new Set([...user.courseKeys, ...courseKeys])],
+      onboardingState: 'awaiting_timetable_confirmation',
+    })
+  }
+
+  async timetableAccepted(user: User): Promise<string> {
+    await userRepository.upsert({ ...user, onboardingState: 'awaiting_reminder' })
+    return ASK_REMINDER
+  }
+
+  async timetableRejected(user: User): Promise<string> {
+    await userRepository.upsert({ ...user, onboardingState: 'awaiting_timetable' })
+    return `No problem — I haven't saved it. Send the timetable again in whichever form is clearest.\n\n${ASK_TIMETABLE}`
+  }
+
+  private async takeReminder(user: User, text: string): Promise<string> {
+    const disabled = /\b(no|off|disable|don't|do not|none)\b/i.test(text)
+    const hours = /\b(\d+(?:\.\d+)?)\s*(hour|hr)s?\b/i.exec(text)
+    const minutes = /\b(\d+)\s*(minute|min)s?\b/i.exec(text)
+    const lead = hours ? Math.round(Number(hours[1]) * 60) : minutes ? Number(minutes[1]) : null
+
+    if (!disabled && (!lead || lead < 5 || lead > 24 * 60)) return ASK_REMINDER
+
+    const registered: User = {
+      ...user,
+      automaticReminders: !disabled,
+      classReminderMinutes: disabled ? user.classReminderMinutes : lead!,
+      onboardingState: 'registered',
+      registeredAt: new Date(),
+    }
+    await userRepository.upsert(registered)
+    await membershipService.subscribe(registered).catch((error) => {
+      logger.warn({ err: error, phone: user.phone }, 'could not resolve groups after onboarding')
+    })
+    return `${disabled ? 'Class reminders are off for now.' : `I'll remind you *${lead} minutes* before each class.`}\n\n${SET_UP_GROUPS(user.displayName)}`
   }
 
   private async takeCourses(user: User, text: string): Promise<string> {

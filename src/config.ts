@@ -15,6 +15,12 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
   PORT: z.coerce.number().default(defaults.server.port),
 
+  // Changing this creates a fresh logical product dataset without deleting the old one.
+  DATA_VERSION: z
+    .string()
+    .regex(/^[A-Za-z0-9._-]+$/)
+    .default(defaults.app.version),
+
   MONGODB_URL: z.string().default('mongodb://localhost:27017'),
   MONGODB_DATABASE: z.string().default(defaults.database.mongodbDatabase),
 
@@ -54,6 +60,17 @@ const envSchema = z.object({
   WHATSAPP_PAIRING_NUMBER: z.string().default(''),
 
   OPENAI_API_KEY: z.string().default(''),
+
+  // Authenticated N-ATLaS speech-to-text endpoint hosted on Modal.
+  MODAL_ASR_URL: z
+    .string()
+    .url()
+    .default('https://dayosalamboi--natlas-voice-api.modal.run/transcribe'),
+  MODAL_PROXY_TOKEN_ID: z.string().default(''),
+  MODAL_PROXY_TOKEN_SECRET: z.string().default(''),
+  MODAL_ASR_LANGUAGE: z.enum(['auto', 'yoruba', 'hausa', 'igbo', 'english']).default('auto'),
+  MODAL_ASR_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.35),
+  MODAL_ASR_TIMEOUT_MS: z.coerce.number().int().positive().default(190_000),
 
   // Optional observability. Off by default because traces contain student messages
   // and retrieved course material; enabling it is an explicit data-sharing choice.
@@ -107,11 +124,14 @@ const env = envSchema.parse(process.env)
  * missing instead of hours later with a timeout.
  */
 const REQUIRED_IN_PRODUCTION = [
+  'DATA_VERSION',
   'MONGODB_URL',
   'MINIO_ENDPOINT',
   'MINIO_ACCESS_KEY',
   'MINIO_SECRET_KEY',
   'OPENAI_API_KEY',
+  'MODAL_PROXY_TOKEN_ID',
+  'MODAL_PROXY_TOKEN_SECRET',
   'ADMIN_PHONE',
 ] as const
 
@@ -136,17 +156,21 @@ if (env.ENVIRONMENT === 'production') {
  * than as anything that names the cause.
  */
 const [minioHost, minioPort] = env.MINIO_ENDPOINT.split(':')
+const dataNamespace = env.DATA_VERSION.replace(/[^A-Za-z0-9_-]/g, '_')
 
 export const config = {
   env: env.ENVIRONMENT,
   logLevel: env.LOG_LEVEL,
   isProduction: env.ENVIRONMENT === 'production',
 
-  app: defaults.app,
+  app: { ...defaults.app, dataVersion: env.DATA_VERSION },
   server: { host: defaults.server.host, port: env.PORT },
 
-  mongo: { url: env.MONGODB_URL, database: env.MONGODB_DATABASE },
-  chroma: { url: env.CHROMA_URL, collection: defaults.database.chromaCollection },
+  mongo: { url: env.MONGODB_URL, database: `${env.MONGODB_DATABASE}_v${dataNamespace}` },
+  chroma: {
+    url: env.CHROMA_URL,
+    collection: `${defaults.database.chromaCollection}_v${dataNamespace}`,
+  },
   minio: {
     endPoint: minioHost!,
     port: minioPort ? Number(minioPort) : env.MINIO_USE_SSL ? 443 : 9000,
@@ -161,6 +185,14 @@ export const config = {
     pairingNumber: env.WHATSAPP_PAIRING_NUMBER,
   },
   openai: { apiKey: env.OPENAI_API_KEY, ...defaults.llm },
+  asr: {
+    url: env.MODAL_ASR_URL,
+    modalTokenId: env.MODAL_PROXY_TOKEN_ID,
+    modalTokenSecret: env.MODAL_PROXY_TOKEN_SECRET,
+    language: env.MODAL_ASR_LANGUAGE,
+    minConfidence: env.MODAL_ASR_MIN_CONFIDENCE,
+    timeoutMs: env.MODAL_ASR_TIMEOUT_MS,
+  },
   langsmith: {
     enabled: env.LANGSMITH_TRACING && env.LANGSMITH_API_KEY !== '',
     project: env.LANGSMITH_PROJECT,
@@ -186,6 +218,21 @@ export const config = {
     args: env.RENDER_ARGS.split(',').filter(Boolean),
   },
   baileysLogLevel: env.BAILEYS_LOG_LEVEL,
+  landing: {
+    whatsappNumber: env.LANDING_WHATSAPP_NUMBER,
+    whatsappUrl: `https://wa.me/${env.LANDING_WHATSAPP_NUMBER}`,
+  },
+  email: {
+    enabled: env.SMTP_HOST !== '' && env.MAIL_FROM !== '' && env.ADMIN_WAITLIST_EMAIL !== '',
+    host: env.SMTP_HOST,
+    port: env.SMTP_PORT,
+    username: env.SMTP_USERNAME,
+    password: env.SMTP_PASSWORD,
+    secure: env.SMTP_USE_SSL,
+    requireTls: env.SMTP_USE_TLS,
+    from: env.MAIL_FROM,
+    adminWaitlistEmail: env.ADMIN_WAITLIST_EMAIL,
+  },
   cloudApi: {
     accessToken: env.ACCESS_TOKEN,
     appSecret: env.APP_SECRET,

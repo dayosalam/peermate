@@ -29,6 +29,7 @@ export const KnowledgeSchema = z.object({
   embedding: z.array(z.number()),
   senderName: z.string(),
   type: z.string(),
+  transcriptConfidence: z.number().nullable().default(null),
   fileName: z.string().nullable().default(null),
   page: z.number().nullable().default(null),
   /** 'text' from a text layer, 'ocr' from a scan, 'none' when it could not be read. */

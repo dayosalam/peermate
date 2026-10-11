@@ -30,11 +30,24 @@ export const TrustedSenderSchema = z.object({
 })
 export type TrustedSender = z.infer<typeof TrustedSenderSchema>
 
+export const GroupMemberSchema = z.object({
+  stableId: z.string(),
+  jid: z.string(),
+  lid: z.string().nullable(),
+  phoneNumber: z.string().nullable(),
+  name: z.string().nullable(),
+  admin: z.string().nullable(),
+  observedAt: z.date(),
+})
+export type GroupMember = z.infer<typeof GroupMemberSchema>
+
 export const GroupSchema = z.object({
   chatJid: z.string(),
   name: z.string().nullable(),
   defaultCourse: z.string().nullable(),
   defaultCourseKey: z.string().nullable(),
+  /** All courses this room may supply. A general room can cover many courses. */
+  courseKeys: z.array(z.string()).optional(),
   /** User-described scope such as "all final-year engineering courses"; never guessed. */
   purpose: z.string().nullable().optional(),
   status: GroupStatus.default('pending'),
@@ -57,6 +70,8 @@ export const GroupSchema = z.object({
   addedByName: z.string().nullable().default(null),
   participantCount: z.number().nullable().default(null),
   trustedSenders: z.array(TrustedSenderSchema).default([]),
+  /** Live directory snapshot; only disclosed after current membership is re-verified. */
+  participants: z.array(GroupMemberSchema).optional(),
   /**
    * What a student said this group is for.
    *

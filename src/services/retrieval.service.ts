@@ -16,6 +16,7 @@ export interface Candidate {
   content: string
   senderName: string
   type: string
+  transcriptConfidence?: number | null
   timestamp: Date
   courseKey: string
   /** 'document' for a chunk of a shared PDF, 'message' for something someone typed or said. */
@@ -72,6 +73,10 @@ export class RetrievalService {
           content,
           senderName: String(meta['senderName'] ?? 'unknown'),
           type: String(meta['type'] ?? 'document'),
+          transcriptConfidence:
+            Number(meta['transcriptConfidence'] ?? -1) >= 0
+              ? Number(meta['transcriptConfidence'])
+              : null,
           timestamp: new Date(Number(meta['timestampMs'] ?? 0)),
           courseKey: String(meta['courseKey'] ?? ''),
           sourceKind: 'document',
@@ -152,6 +157,10 @@ export class RetrievalService {
           content,
           senderName: String(meta['senderName'] ?? 'unknown'),
           type: String(meta['type'] ?? 'text'),
+          transcriptConfidence:
+            Number(meta['transcriptConfidence'] ?? -1) >= 0
+              ? Number(meta['transcriptConfidence'])
+              : null,
           timestamp: new Date(Number(meta['timestampMs'] ?? 0)),
           courseKey: String(meta['courseKey'] ?? ''),
           sourceKind: String(meta['sourceKind'] ?? 'message'),
@@ -174,6 +183,7 @@ function fromKnowledge(row: Knowledge): Candidate {
     content: row.text,
     senderName: row.senderName,
     type: row.type,
+    transcriptConfidence: row.transcriptConfidence,
     timestamp: row.timestamp,
     courseKey: row.courseKey ?? '',
     sourceKind: row.sourceKind,

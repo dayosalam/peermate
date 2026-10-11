@@ -1,6 +1,6 @@
 # Peermate
 
-Peermate is a personal AI agent that lives in university course group chats and privately helps students keep up with what matters. It listens silently across multiple WhatsApp groups, understands text messages, voice notes, photographed timetables, PDFs and Word documents, and extracts important information such as tests, deadlines, venue changes and class schedules.
+Peermate is a personal AI agent that lives in university course group chats and privately helps students keep up with what matters. It listens silently across multiple WhatsApp groups, understands text messages, voice notes and photographed timetables, stores shared files, and extracts important information such as tests, deadlines, venue changes and class schedules. PDF contents are processed only when a student explicitly asks to use a file.
 
 Students receive timely alerts and personalized daily digests with citations showing who shared each announcement and when. They can ask follow-up questions, retrieve course files, manage their courses and notification preferences, upload personal timetables, receive reminders, and generate revision guides or quizzes from materials shared in their groups. Peermate also uses Exa to find clearly labelled external reading and additional study materials without mixing web content with official group-chat information.
 
@@ -13,9 +13,23 @@ Private messages are part of each student's own searchable memory. Group history
 Everything in containers:
 
 ```bash
-cp .env.example .env      # OPENAI_API_KEY and ADMIN_PHONE are the two that matter
+cp .env.example .env      # set the required API, storage, and WhatsApp values
 docker compose up --build
 ```
+
+Voice-note transcription uses the authenticated N-ATLaS ASR endpoint on Modal. Add
+the proxy token returned by Modal to `.env`:
+
+```dotenv
+MODAL_PROXY_TOKEN_ID=wk-...
+MODAL_PROXY_TOKEN_SECRET=ws-...
+MODAL_ASR_LANGUAGE=auto
+MODAL_ASR_MIN_CONFIDENCE=0.35
+```
+
+The token is read only by the server process and must never be committed or exposed
+to the landing page. Automatic detection routes Yoruba, Hausa, Igbo, or English to
+the corresponding N-ATLaS checkpoint.
 
 The first boot has to be paired. Set `WHATSAPP_PAIRING_NUMBER` to the bot's number
 (digits only, country code, no `+`) and read the code out of the logs:
@@ -27,11 +41,11 @@ docker compose logs -f app      # INFO: pairing code: ABCD-EFGH
 Then on the bot's phone: **WhatsApp → Linked devices → Link with phone number**, and
 type the code. It pairs once and stays paired.
 
-To develop against the host instead, run the stores in Docker and the app outside it,
-which puts the pairing code — or the QR — in your own terminal:
+To develop against the host instead, start MongoDB, MinIO and Chroma locally,
+then run the app outside them. This puts the pairing code — or the QR — in your
+own terminal:
 
 ```bash
-docker compose up mongo minio chroma
 npm run dev
 ```
 
@@ -52,6 +66,40 @@ Read the pairing code out of those logs and link it from the bot's phone. Only p
 3000 is published — MinIO and Chroma are reachable only from inside the compose
 network, which is where they belong: neither needs to be on the public internet, and an
 object store that is costs more than it gives.
+
+## Delivery pipeline
+
+The GitHub Actions workflow in `.github/workflows/pipeline.yml` runs on every pull
+request and push to `main`. It installs from both lockfiles, runs the app and renderer
+test/type gates, builds the app, validates `compose.prod.yml`, and builds both
+production images.
+
+Production deployment is intentionally manual. In GitHub Actions, run **PeerMate
+pipeline**, enable **Deploy**, and approve the `production` environment if it has a
+review rule. The deploy job refuses a dirty server checkout, confirms that the exact
+commit it verified is still `origin/main`, performs a fast-forward-only update, and
+runs `ops/deploy.sh`. That script preserves all named volumes and waits for `/ready`.
+
+Configure these GitHub production secrets:
+
+- `DEPLOY_HOST`: the server hostname or IP address
+- `DEPLOY_USER`: the unprivileged SSH user that owns the checkout and can run Docker
+- `SSH_PRIVATE_KEY`: its deployment key
+- `DEPLOY_KNOWN_HOSTS`: the pinned `known_hosts` line for the server
+
+`DEPLOY_PATH` is an optional production environment variable and defaults to
+`/home/dayo/peermate`. The server keeps its existing `.env` and WhatsApp auth volume;
+neither is copied through GitHub Actions.
+
+Run the same gates locally with:
+
+```bash
+npm ci
+npm run verify
+npm --prefix render ci
+npm run verify:render
+npm run verify:compose
+```
 
 Chroma has to be run, not borrowed. The JS client speaks HTTP only — there is no
 embedded mode as in Python — so a server is required.
@@ -80,8 +128,8 @@ was unavailable. Shared group sources are not deleted by one student's account d
 because other verified members may rely on them. A student can instead ask Peermate to
 forget one group, which removes only that student's access to its archive.
 
-Conversation transcripts expire after 30 days. Shared group-source retention is
-operator-controlled for now and must be explained privately to users before real deployment.
+Conversation transcripts and shared sources do not expire automatically. They remain
+until an authorised forget/delete request or deliberate data-version retirement.
 
 ### Product acceptance check
 
@@ -108,9 +156,11 @@ It is idempotent — it skips anyone already scoped — so the cost of every boo
 the first is two reads and no writes. To re-run it by hand, after resolving a group it
 could not place:
 
-````bash
+```bash
 npm run backfill-tenancy
-``` It reports what it could not resolve
+```
+
+It reports what it could not resolve
 rather than guessing — a course carried by two groups is exactly the cross-institution
 collision the boundary exists to stop, and picking one would be guessing which
 university somebody attends.
@@ -137,7 +187,7 @@ npm run migrate-to-atlas -- --backfill    # copy every chunk across
 SEARCH_BACKEND=dual                       # write both, still read Chroma
 npm run migrate-to-atlas -- --compare <group-jid> <COURSEKEY>
 SEARCH_BACKEND=atlas                      # read Atlas; Chroma can go
-````
+```
 
 Each step is reversible until the last, and the last is one environment variable.
 

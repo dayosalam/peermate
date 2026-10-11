@@ -1,0 +1,236 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "PeerMate Operational and Signup API",
+    "version": "0.2.2",
+    "description": "PeerMate's small HTTP surface. Student-facing product interactions occur through WhatsApp, not this API. Admin routes are intended for loopback-only operational access."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:3011",
+      "description": "Production host loopback binding"
+    },
+    {
+      "url": "http://localhost:3000",
+      "description": "Local or container development"
+    }
+  ],
+  "paths": {
+    "/api/signup/config": {
+      "get": {
+        "operationId": "getSignupConfig",
+        "summary": "Get public landing-page signup configuration",
+        "responses": {
+          "200": {
+            "description": "Public configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["whatsappUrl"],
+                  "properties": {
+                    "whatsappUrl": { "type": "string", "format": "uri" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/signup/email": {
+      "post": {
+        "operationId": "createEmailSignup",
+        "summary": "Create or update an email waitlist signup",
+        "description": "Limited to 10 attempts per observed client address per 10-minute in-memory window.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email"],
+                "properties": {
+                  "email": { "type": "string", "format": "email", "maxLength": 254 },
+                  "name": { "type": "string", "maxLength": 100 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Signup stored; email delivery status is reported independently.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["signedUp", "emailSent", "whatsappUrl"],
+                  "properties": {
+                    "signedUp": { "type": "boolean", "const": true },
+                    "emailSent": { "type": "boolean" },
+                    "whatsappUrl": { "type": "string", "format": "uri" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid signup input",
+            "content": {
+              "application/json": { "$ref": "#/components/content/Error" }
+            }
+          },
+          "429": {
+            "description": "Signup rate limit exceeded",
+            "headers": {
+              "Retry-After": { "schema": { "type": "integer" } }
+            },
+            "content": {
+              "application/json": { "$ref": "#/components/content/Error" }
+            }
+          },
+          "500": {
+            "description": "Signup could not be stored",
+            "content": {
+              "application/json": { "$ref": "#/components/content/Error" }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Get cheap process liveness",
+        "responses": {
+          "200": {
+            "description": "Process is alive",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["status", "app", "version", "shard"],
+                  "properties": {
+                    "status": { "type": "string", "const": "ok" },
+                    "app": { "type": "string" },
+                    "version": { "type": "string" },
+                    "shard": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "operationId": "getReadiness",
+        "summary": "Check MongoDB, MinIO, and WhatsApp readiness",
+        "responses": {
+          "200": {
+            "description": "All dependencies are ready",
+            "content": {
+              "application/json": { "$ref": "#/components/content/Readiness" }
+            }
+          },
+          "503": {
+            "description": "At least one dependency is unavailable",
+            "content": {
+              "application/json": { "$ref": "#/components/content/Readiness" }
+            }
+          }
+        }
+      }
+    },
+    "/admin/metrics": {
+      "get": {
+        "operationId": "getMetrics",
+        "summary": "Get the in-process metric snapshot",
+        "x-internal": true,
+        "responses": {
+          "200": {
+            "description": "Metric names and values",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "additionalProperties": true }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/queue": {
+      "get": {
+        "operationId": "getQueueDepth",
+        "summary": "Get the in-memory ingestion queue depth",
+        "x-internal": true,
+        "responses": {
+          "200": {
+            "description": "Queue depth",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["depth"],
+                  "properties": { "depth": { "type": "integer", "minimum": 0 } }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/groups": {
+      "get": {
+        "operationId": "getGroups",
+        "summary": "List stored WhatsApp groups",
+        "x-internal": true,
+        "responses": {
+          "200": {
+            "description": "Stored group records",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "type": "object", "additionalProperties": true }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "content": {
+      "Error": {
+        "schema": {
+          "type": "object",
+          "required": ["error"],
+          "properties": { "error": { "type": "string" } }
+        }
+      },
+      "Readiness": {
+        "schema": {
+          "type": "object",
+          "required": ["ready", "shard", "checks"],
+          "properties": {
+            "ready": { "type": "boolean" },
+            "shard": { "type": "string" },
+            "checks": {
+              "type": "object",
+              "required": ["mongo", "minio", "whatsapp"],
+              "properties": {
+                "mongo": { "type": "string" },
+                "minio": { "type": "string" },
+                "whatsapp": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
