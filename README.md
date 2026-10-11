@@ -13,7 +13,7 @@ Private messages are part of each student's own searchable memory. Group history
 Everything in containers:
 
 ```bash
-cp .env.example .env      # OPENAI_API_KEY and ADMIN_PHONE are the two that matter
+cp .env.example .env      # set the required API, storage, and WhatsApp values
 docker compose up --build
 ```
 
@@ -52,6 +52,40 @@ Read the pairing code out of those logs and link it from the bot's phone. Only p
 3000 is published — MinIO and Chroma are reachable only from inside the compose
 network, which is where they belong: neither needs to be on the public internet, and an
 object store that is costs more than it gives.
+
+## Delivery pipeline
+
+The GitHub Actions workflow in `.github/workflows/pipeline.yml` runs on every pull
+request and push to `main`. It installs from both lockfiles, runs the app and renderer
+test/type gates, builds the app, validates `compose.prod.yml`, and builds both
+production images.
+
+Production deployment is intentionally manual. In GitHub Actions, run **PeerMate
+pipeline**, enable **Deploy**, and approve the `production` environment if it has a
+review rule. The deploy job refuses a dirty server checkout, confirms that the exact
+commit it verified is still `origin/main`, performs a fast-forward-only update, and
+runs `ops/deploy.sh`. That script preserves all named volumes and waits for `/ready`.
+
+Configure these GitHub production secrets:
+
+- `DEPLOY_HOST`: the server hostname or IP address
+- `DEPLOY_USER`: the unprivileged SSH user that owns the checkout and can run Docker
+- `SSH_PRIVATE_KEY`: its deployment key
+- `DEPLOY_KNOWN_HOSTS`: the pinned `known_hosts` line for the server
+
+`DEPLOY_PATH` is an optional production environment variable and defaults to
+`/home/dayo/peermate`. The server keeps its existing `.env` and WhatsApp auth volume;
+neither is copied through GitHub Actions.
+
+Run the same gates locally with:
+
+```bash
+npm ci
+npm run verify
+npm --prefix render ci
+npm run verify:render
+npm run verify:compose
+```
 
 Chroma has to be run, not borrowed. The JS client speaks HTTP only — there is no
 embedded mode as in Python — so a server is required.
@@ -108,9 +142,11 @@ It is idempotent — it skips anyone already scoped — so the cost of every boo
 the first is two reads and no writes. To re-run it by hand, after resolving a group it
 could not place:
 
-````bash
+```bash
 npm run backfill-tenancy
-``` It reports what it could not resolve
+```
+
+It reports what it could not resolve
 rather than guessing — a course carried by two groups is exactly the cross-institution
 collision the boundary exists to stop, and picking one would be guessing which
 university somebody attends.
@@ -137,7 +173,7 @@ npm run migrate-to-atlas -- --backfill    # copy every chunk across
 SEARCH_BACKEND=dual                       # write both, still read Chroma
 npm run migrate-to-atlas -- --compare <group-jid> <COURSEKEY>
 SEARCH_BACKEND=atlas                      # read Atlas; Chroma can go
-````
+```
 
 Each step is reversible until the last, and the last is one environment variable.
 

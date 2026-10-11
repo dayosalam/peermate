@@ -1,0 +1,121 @@
+name: PeerMate pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy the verified main commit to production
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: peermate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    name: App tests, types, and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+          cache: npm
+      - run: npm ci
+      - run: npm run verify
+
+  renderer:
+    name: Renderer tests and types
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: render
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+          cache: npm
+          cache-dependency-path: render/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+
+  containers:
+    name: Production images and Compose
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate production Compose
+        run: |
+          cp .env.example .env
+          docker compose -f compose.prod.yml config --quiet
+      - name: Build bot image
+        run: docker build --tag peermate-app:${{ github.sha }} .
+      - name: Build render-worker image
+        run: docker build --file Dockerfile.worker --tag peermate-render-worker:${{ github.sha }} .
+
+  deploy:
+    name: Deploy production
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy
+    needs: [app, renderer, containers]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/home/dayo/peermate' }}
+      EXPECTED_SHA: ${{ github.sha }}
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Deploy the verified commit
+        run: |
+          ssh "$DEPLOY_USER@$DEPLOY_HOST" bash -s -- "$DEPLOY_PATH" "$EXPECTED_SHA" <<'REMOTE'
+          set -eu
+          deploy_path=$1
+          expected_sha=$2
+          cd "$deploy_path"
+
+          if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+            echo "Refusing to overwrite tracked changes in $deploy_path" >&2
+            exit 1
+          fi
+
+          git fetch origin main
+          actual_sha=$(git rev-parse origin/main)
+          if [ "$actual_sha" != "$expected_sha" ]; then
+            echo "origin/main is $actual_sha, expected $expected_sha; run the pipeline again" >&2
+            exit 1
+          fi
+
+          git checkout main
+          git merge --ff-only "$expected_sha"
+          deployed_sha=$(git rev-parse HEAD)
+          if [ "$deployed_sha" != "$expected_sha" ]; then
+            echo "Server main is $deployed_sha after update, expected $expected_sha" >&2
+            exit 1
+          fi
+          ./ops/deploy.sh
+          REMOTE
